@@ -27,13 +27,13 @@
                 android:id="@+id/nearbyStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.PineKone.Title" />
+                android:textAppearance="@style/TextAppearance.PineKone.SectionTitle" />
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/nearbyHint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="4dp"
                 android:text="@string/nearby_map_hint"
                 android:textAppearance="@style/TextAppearance.PineKone.Meta" />
 
@@ -43,11 +43,20 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:textAppearance="@style/TextAppearance.PineKone.Meta" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/nearbyActionButton"
+                style="@style/Widget.PineKone.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/nearby_action_scan" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
     <com.google.android.material.button.MaterialButtonToggleGroup
         android:id="@+id/viewModeToggle"
+        style="@style/Widget.PineKone.ToggleGroup"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
@@ -58,12 +67,14 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/viewModeList"
+            style="@style/Widget.PineKone.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/nearby_view_list" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/viewModeMap"
+            style="@style/Widget.PineKone.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/nearby_view_map" />
@@ -88,7 +99,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/nearby_devices_placeholder"
-        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textAppearance="@style/TextAppearance.PineKone.Body"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/nearbyList"
         app:layout_constraintEnd_toEndOf="@id/nearbyList"

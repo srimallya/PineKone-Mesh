@@ -4,26 +4,29 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:paddingHorizontal="16dp"
-    android:paddingVertical="8dp">
+    android:paddingVertical="10dp">
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/publicMessageAuthor"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="@style/TextAppearance.Material3.LabelMedium" />
+        android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+        android:textColor="@color/md_theme_on_surface_variant" />
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/publicMessageBody"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textColor="@color/md_theme_on_surface" />
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/publicMessageMeta"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:textAppearance="@style/TextAppearance.Material3.LabelSmall" />
+        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
+        android:textColor="@color/md_theme_on_surface_variant" />
 
 </LinearLayout>

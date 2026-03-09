@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
@@ -45,6 +46,10 @@ class PublicChatFragment : Fragment() {
             stackFromEnd = true
         }
         binding.publicMessageList.adapter = adapter
+        binding.publicSendButton.isEnabled = false
+        binding.publicMessageInput.doAfterTextChanged { text ->
+            binding.publicSendButton.isEnabled = !text.isNullOrBlank()
+        }
 
         binding.publicSendButton.setOnClickListener {
             val text = binding.publicMessageInput.text?.toString()?.trim().orEmpty()
@@ -61,6 +66,7 @@ class PublicChatFragment : Fragment() {
                         binding.publicMessageList.scrollToPosition(maxOf(adapter.itemCount - 1, 0))
                     }
                     binding.publicEmptyState.isVisible = messages.isEmpty()
+                    binding.publicIntroCard.alpha = if (messages.isEmpty()) 1f else 0.92f
                 }
             }
         }

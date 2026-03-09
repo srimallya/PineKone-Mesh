@@ -54,6 +54,7 @@ class PeerAdapter(
     class PeerViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val relationBadge: Chip = itemView.findViewById(R.id.peerRelationBadge)
         private val name: TextView = itemView.findViewById(R.id.peerName)
+        private val roleSummary: TextView = itemView.findViewById(R.id.peerRoleSummary)
         private val trustChip: Chip = itemView.findViewById(R.id.peerTrustChip)
         private val transportChip: Chip = itemView.findViewById(R.id.peerTransportChip)
         private val meta: TextView = itemView.findViewById(R.id.peerMeta)
@@ -65,6 +66,7 @@ class PeerAdapter(
             val timestamp = formatter.format(peer.lastSeen)
             relationBadge.text = itemView.context.getString(R.string.nearby_relation_l1)
             tintChip(relationBadge, R.color.pk_chip_success_bg, R.color.pk_chip_success_fg)
+            roleSummary.text = itemView.context.getString(R.string.nearby_relation_direct)
             trustChip.text = itemView.context.getString(R.string.nearby_trust_unverified)
             tintChip(trustChip, R.color.pk_chip_neutral_bg, R.color.pk_chip_neutral_fg)
             transportChip.text = if (peer.transport == TransportKind.MESH) {

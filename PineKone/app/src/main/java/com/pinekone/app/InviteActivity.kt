@@ -1,5 +1,7 @@
 package com.pinekone.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -8,6 +10,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.snackbar.Snackbar
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.WriterException
 import com.google.zxing.qrcode.QRCodeWriter
@@ -20,6 +23,8 @@ import kotlinx.coroutines.launch
 class InviteActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityInviteBinding
+    private var invitePayload: String = ""
+    private var codeVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +36,16 @@ class InviteActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { finish() }
         binding.buttonScan.setOnClickListener {
             startActivity(Intent(this, JoinActivity::class.java))
+        }
+        binding.buttonViewCode.setOnClickListener {
+            codeVisible = !codeVisible
+            renderCodeVisibility()
+        }
+        binding.buttonCopyInvite.setOnClickListener {
+            if (invitePayload.isBlank()) return@setOnClickListener
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("PineKone invite", invitePayload))
+            Snackbar.make(binding.root, getString(R.string.invite_code_copied), Snackbar.LENGTH_SHORT).show()
         }
 
         val engine = (application as PineKoneApp).engine
@@ -63,10 +78,21 @@ class InviteActivity : AppCompatActivity() {
                         append(epoch)
                         append("&role=relay")
                     }
-                    binding.inviteHint.text = invitePayload
+                    this@InviteActivity.invitePayload = invitePayload
+                    binding.inviteCodeText.text = invitePayload
                     renderQr(invitePayload)
+                    renderCodeVisibility()
                 }
             }
+        }
+    }
+
+    private fun renderCodeVisibility() {
+        binding.inviteCodeText.visibility = if (codeVisible) android.view.View.VISIBLE else android.view.View.GONE
+        binding.buttonViewCode.text = if (codeVisible) {
+            getString(R.string.invite_hide_code)
+        } else {
+            getString(R.string.invite_view_code)
         }
     }
 
@@ -85,6 +111,7 @@ class InviteActivity : AppCompatActivity() {
             binding.qrImage.setImageBitmap(bitmap)
         } catch (ex: WriterException) {
             binding.inviteHint.text = getString(R.string.invite_hint)
+            binding.inviteCodeText.text = ""
         }
     }
 

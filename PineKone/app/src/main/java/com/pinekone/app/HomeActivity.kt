@@ -131,6 +131,7 @@ class HomeActivity : AppCompatActivity() {
         binding.homeStatusCard.setOnClickListener {
             startActivity(Intent(this, NetworkActivity::class.java))
         }
+        binding.homeStatusCard.contentDescription = getString(R.string.home_status_open_details)
 
         observeStatusStrip()
         styleStatusStrip()
@@ -246,6 +247,11 @@ class HomeActivity : AppCompatActivity() {
             if (custodyActive) R.color.pk_chip_warn_bg else R.color.pk_chip_neutral_bg,
             if (custodyActive) R.color.pk_chip_warn_fg else R.color.pk_chip_neutral_fg
         )
+        binding.homeStatusCard.contentDescription = buildString {
+            append(binding.homeStatusHeadline.text)
+            append(". ")
+            append(binding.homeStatusSubline.text)
+        }
     }
 
     private fun styleChip(chip: Chip, backgroundRes: Int, foregroundRes: Int) {

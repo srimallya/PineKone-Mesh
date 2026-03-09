@@ -8,13 +8,16 @@
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:background="@color/pk_canvas"
+        android:paddingTop="8dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/topAppBar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="@color/pk_canvas"
+            android:paddingHorizontal="8dp"
             android:title="@string/home_title" />
 
         <com.google.android.material.card.MaterialCardView
@@ -22,54 +25,59 @@
             style="@style/Widget.PineKone.HighlightCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:paddingHorizontal="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="12dp">
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/homeStatusHeadline"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="@style/TextAppearance.PineKone.Title" />
+                    android:textAppearance="@style/TextAppearance.PineKone.Title"
+                    android:textColor="@color/md_theme_on_surface" />
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/homeStatusSubline"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="4dp"
                     android:textAppearance="@style/TextAppearance.PineKone.Meta" />
 
                 <com.google.android.material.chip.ChipGroup
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    app:chipSpacingHorizontal="8dp"
-                    app:chipSpacingVertical="8dp"
+                    android:layout_marginTop="10dp"
+                    app:chipSpacingHorizontal="6dp"
+                    app:chipSpacingVertical="6dp"
                     app:singleLine="false">
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/homeChipDisclosure"
-                        style="@style/Widget.PineKone.Chip"
+                        style="@style/Widget.PineKone.StatusChip"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/home_status_chip_disclosure" />
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/homeChipTransport"
-                        style="@style/Widget.PineKone.Chip"
+                        style="@style/Widget.PineKone.StatusChip"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/homeChipCustody"
-                        style="@style/Widget.PineKone.Chip"
+                        style="@style/Widget.PineKone.StatusChip"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
 
@@ -79,9 +87,10 @@
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/homeTabs"
+            style="@style/Widget.PineKone.TabLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="8dp"
+            android:layout_marginHorizontal="12dp"
             app:tabIndicatorFullWidth="false" />
 
     </com.google.android.material.appbar.AppBarLayout>

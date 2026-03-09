@@ -1,5 +1,6 @@
 package com.pinekone.app
 
+import android.content.Intent
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -86,6 +87,9 @@ class NearbyFragment : Fragment() {
         showListView()
 
         binding.mapPingButton.setOnClickListener { pingAllPeers() }
+        binding.nearbyActionButton.setOnClickListener {
+            startActivity(Intent(requireContext(), JoinActivity::class.java))
+        }
 
         collectIdentity()
         collectPeers()
@@ -139,15 +143,25 @@ class NearbyFragment : Fragment() {
             viewLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 viewModel.peers.collect { peers ->
                     binding.nearbyStatus.text = if (peers.isEmpty()) {
-                        getString(R.string.nearby_devices_placeholder)
+                        getString(R.string.nearby_summary_title_idle)
                     } else {
-                        getString(R.string.nearby_map_status, peers.size)
+                        getString(R.string.nearby_summary_title_active, peers.size)
+                    }
+                    binding.nearbyHint.text = if (peers.isEmpty()) {
+                        getString(R.string.nearby_summary_empty)
+                    } else {
+                        getString(R.string.nearby_summary_ready)
                     }
 
                     binding.nearbyEmpty.isVisible = binding.nearbyList.isVisible && peers.isEmpty()
                     binding.mapPingButton.isEnabled = peers.isNotEmpty()
                     binding.mapPingButton.visibility =
                         if (binding.mapContainer.isVisible) View.VISIBLE else View.GONE
+                    binding.viewModeMap.isEnabled = peers.isNotEmpty()
+                    if (peers.isEmpty() && binding.mapContainer.isVisible) {
+                        binding.viewModeToggle.check(binding.viewModeList.id)
+                        showListView()
+                    }
 
                     peerAdapter.submitList(peers)
                     trimPingStates(peers)
@@ -186,6 +200,10 @@ class NearbyFragment : Fragment() {
     }
 
     private fun showMapView() {
+        if (peerAdapter.itemCount == 0) {
+            showListView()
+            return
+        }
         binding.nearbyList.isVisible = false
         binding.nearbyEmpty.isVisible = false
         binding.mapContainer.isVisible = true
