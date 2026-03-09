@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_radio_mode"
+        android:title="@string/home_radio_full"
+        app:actionLayout="@layout/menu_radio_mode_toggle"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_scan"
+        android:icon="@android:drawable/ic_menu_camera"
+        android:title="Scan"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_network"
+        android:title="@string/home_action_network"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_custody"
+        android:title="@string/home_action_custody"
+        app:showAsAction="never" />
+
+</menu>

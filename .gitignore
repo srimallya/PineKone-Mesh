@@ -1,0 +1,17 @@
+.DS_Store
+.venv/
+.vscode/
+*.log
+
+# Workspace scratch
+82b69066da88d894
+
+# Android / Gradle outputs
+**/.gradle/
+**/build/
+**/local.properties
+**/*.apk
+**/*.aab
+**/*.apks
+**/.idea/
+**/*.iml

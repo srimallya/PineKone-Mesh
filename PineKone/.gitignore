@@ -1,0 +1,21 @@
+# Built application files
+*.apk
+*.aab
+*.apks
+
+# Gradle files
+.gradle/
+build/
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# Android
+local.properties
+
+# Misc
+.DS_Store
