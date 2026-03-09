@@ -22,28 +22,29 @@
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/homeStatusCard"
-            style="@style/Widget.PineKone.HighlightCard"
+            style="@style/Widget.PineKone.SurfaceCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="4dp"
             android:layout_marginBottom="8dp"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <LinearLayout
+            <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:minHeight="56dp"
                 android:paddingHorizontal="16dp"
-                android:paddingTop="14dp"
-                android:paddingBottom="12dp">
+                android:paddingVertical="12dp">
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/homeStatusHeadline"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_toStartOf="@id/homeStatusDetails"
                     android:textAppearance="@style/TextAppearance.PineKone.Title"
                     android:textColor="@color/md_theme_on_surface" />
 
@@ -51,13 +52,33 @@
                     android:id="@+id/homeStatusSubline"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_below="@id/homeStatusHeadline"
+                    android:layout_alignStart="@id/homeStatusHeadline"
+                    android:layout_toStartOf="@id/homeStatusDetails"
+                    android:layout_marginTop="2dp"
                     android:textAppearance="@style/TextAppearance.PineKone.Meta" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/homeStatusDetails"
+                    style="@style/Widget.PineKone.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:minHeight="40dp"
+                    android:paddingHorizontal="14dp"
+                    android:text="@string/home_status_open_details_short" />
+
                 <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/homeStatusChipGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_below="@id/homeStatusSubline"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone"
                     app:chipSpacingHorizontal="6dp"
                     app:chipSpacingVertical="6dp"
                     app:singleLine="false">
@@ -82,7 +103,7 @@
                         android:layout_height="wrap_content" />
 
                 </com.google.android.material.chip.ChipGroup>
-            </LinearLayout>
+            </RelativeLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.tabs.TabLayout

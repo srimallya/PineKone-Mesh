@@ -30,6 +30,13 @@
                 android:textAppearance="@style/TextAppearance.PineKone.SectionTitle" />
 
             <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/nearbyFilter"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textAppearance="@style/TextAppearance.PineKone.Meta" />
+
+            <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/nearbyHint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

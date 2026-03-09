@@ -75,32 +75,121 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 android:padding="10dp">
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/messageInputLayout"
-                    android:layout_width="0dp"
+                <LinearLayout
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    app:boxBackgroundMode="none">
+                    android:layout_width="match_parent"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/messageInput"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/messageAttachButton"
+                        style="@style/Widget.PineKone.OutlinedButton"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:background="@null"
-                        android:hint="Type a message" />
+                        android:minWidth="0dp"
+                        android:text="@string/chat_attach" />
 
-                </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/messageInputLayout"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginEnd="8dp"
+                        app:boxBackgroundMode="none">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/messageSendButton"
-                    style="@style/Widget.PineKone.PrimaryButton"
-                    android:layout_width="wrap_content"
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/messageInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@null"
+                            android:hint="@string/chat_type_message" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/messageMicButton"
+                        style="@style/Widget.PineKone.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:text="@string/chat_voice" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/messageSendButton"
+                        style="@style/Widget.PineKone.PrimaryButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/public_chat_send" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/recordingPanel"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Send" />
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/recordingStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="@style/TextAppearance.PineKone.Meta" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingStopButton"
+                        style="@style/Widget.PineKone.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/chat_record_stop" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingCancelButton"
+                        style="@style/Widget.PineKone.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/common_cancel" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/recordingReviewPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/recordingReviewText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="@style/TextAppearance.PineKone.Meta" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingDiscardButton"
+                        style="@style/Widget.PineKone.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/chat_discard" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/recordingSendButton"
+                        style="@style/Widget.PineKone.PrimaryButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/chat_send_voice" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

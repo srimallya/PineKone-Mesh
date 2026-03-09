@@ -18,6 +18,7 @@ import com.pinekone.app.engine.PkPeer
 import com.pinekone.app.protocol.toHexString
 import com.pinekone.app.ui.MeshViewModel
 import com.pinekone.app.ui.PeerAdapter
+import com.pinekone.app.ui.PeerPresentation
 import com.pinekone.app.ui.PingStatus
 import com.pinekone.app.ui.PingUiState
 import java.nio.ByteBuffer
@@ -42,7 +43,7 @@ class NearbyFragment : Fragment() {
     private lateinit var peerAdapter: PeerAdapter
 
     private val markers = mutableMapOf<String, Marker>()
-    private val latestPeers = mutableMapOf<String, PkPeer>()
+    private val latestPeers = mutableMapOf<String, PeerPresentation>()
     private val pingStates = mutableMapOf<String, PingUiState>()
     private val pingResetJobs = mutableMapOf<String, Job>()
 
@@ -67,8 +68,8 @@ class NearbyFragment : Fragment() {
         )[MeshViewModel::class.java]
 
         peerAdapter = PeerAdapter { peer ->
-            setPingState(peer.id, PingUiState(PingStatus.PENDING))
-            viewModel.pingPeer(peer.id)
+            setPingState(peer.peer.id, PingUiState(PingStatus.PENDING))
+            viewModel.pingPeer(peer.peer.id)
         }
 
         binding.nearbyList.layoutManager = LinearLayoutManager(requireContext())
@@ -141,19 +142,28 @@ class NearbyFragment : Fragment() {
     private fun collectPeers() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-                viewModel.peers.collect { peers ->
+                viewModel.visiblePeers.collect { peers ->
+                    val settings = viewModel.settings.value
                     binding.nearbyStatus.text = if (peers.isEmpty()) {
                         getString(R.string.nearby_summary_title_idle)
                     } else {
                         getString(R.string.nearby_summary_title_active, peers.size)
                     }
+                    binding.nearbyFilter.text = when (settings.mapVisibilityDefault) {
+                        com.pinekone.app.data.model.MapVisibilityDefault.ALL_DISCOVERED -> getString(R.string.settings_map_all)
+                        com.pinekone.app.data.model.MapVisibilityDefault.CONTACTS_ONLY -> getString(R.string.settings_map_contacts)
+                        com.pinekone.app.data.model.MapVisibilityDefault.TRUSTED_ONLY -> getString(R.string.settings_map_trusted)
+                    }
                     binding.nearbyHint.text = if (peers.isEmpty()) {
-                        getString(R.string.nearby_summary_empty)
+                        getString(
+                            R.string.nearby_summary_empty_filtered,
+                            binding.nearbyFilter.text
+                        )
                     } else {
                         getString(R.string.nearby_summary_ready)
                     }
 
-                    binding.nearbyEmpty.isVisible = binding.nearbyList.isVisible && peers.isEmpty()
+                    binding.nearbyEmpty.isVisible = false
                     binding.mapPingButton.isEnabled = peers.isNotEmpty()
                     binding.mapPingButton.visibility =
                         if (binding.mapContainer.isVisible) View.VISIBLE else View.GONE
@@ -191,7 +201,7 @@ class NearbyFragment : Fragment() {
 
     private fun showListView() {
         binding.nearbyList.isVisible = true
-        binding.nearbyEmpty.isVisible = peerAdapter.itemCount == 0
+        binding.nearbyEmpty.isVisible = false
         binding.mapContainer.isVisible = false
         binding.mapPingButton.visibility = View.GONE
         if (this::mapView.isInitialized) {
@@ -215,16 +225,16 @@ class NearbyFragment : Fragment() {
     }
 
     private fun pingAllPeers() {
-        val peers = viewModel.peers.value
+        val peers = viewModel.visiblePeers.value
         if (peers.isEmpty()) return
         peers.forEach { peer ->
-            setPingState(peer.id, PingUiState(PingStatus.PENDING))
-            viewModel.pingPeer(peer.id)
+            setPingState(peer.peer.id, PingUiState(PingStatus.PENDING))
+            viewModel.pingPeer(peer.peer.id)
         }
     }
 
-    private fun trimPingStates(peers: List<PkPeer>) {
-        val activeIds = peers.map { it.id }.toSet()
+    private fun trimPingStates(peers: List<PeerPresentation>) {
+        val activeIds = peers.map { it.peer.id }.toSet()
         val removed = pingStates.keys - activeIds
         if (removed.isEmpty()) return
         removed.forEach { id ->
@@ -233,23 +243,24 @@ class NearbyFragment : Fragment() {
         }
     }
 
-    private fun updateMarkers(peers: List<PkPeer>) {
-        val activeIds = peers.map { it.id }.toSet()
+    private fun updateMarkers(peers: List<PeerPresentation>) {
+        val activeIds = peers.map { it.peer.id }.toSet()
         val removed = markers.keys - activeIds
         removed.forEach { id ->
             markers.remove(id)?.let { mapView.overlays.remove(it) }
             latestPeers.remove(id)
         }
 
-        peers.forEach { peer ->
-            latestPeers[peer.id] = peer
+        peers.forEach { presentation ->
+            val peer = presentation.peer
+            latestPeers[peer.id] = presentation
             val marker = markers[peer.id] ?: Marker(mapView).apply {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 markers[peer.id] = this
                 mapView.overlays.add(this)
             }
             marker.position = generatePosition(peer)
-            marker.title = peer.displayName
+            marker.title = "${peer.displayName} • ${presentation.visibilityLabel}"
             val state = pingStates[peer.id] ?: PingUiState(PingStatus.IDLE)
             applyMarkerState(peer.id, state, invalidate = false)
         }
@@ -288,7 +299,7 @@ class NearbyFragment : Fragment() {
             PingStatus.IDLE -> R.drawable.ic_ping_marker_default
         }
         marker.icon = ContextCompat.getDrawable(requireContext(), drawableRes)
-        val baseName = latestPeers[peerId]?.displayName ?: marker.title ?: ""
+        val baseName = latestPeers[peerId]?.peer?.displayName ?: marker.title ?: ""
         marker.title = when (state.status) {
             PingStatus.SUCCESS -> {
                 val latency = state.latencyMs?.coerceAtLeast(0) ?: 0

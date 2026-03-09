@@ -18,7 +18,7 @@ import androidx.room.TypeConverters
         RoleAttestationEntity::class,
         RevocationEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(PkTypeConverters::class)

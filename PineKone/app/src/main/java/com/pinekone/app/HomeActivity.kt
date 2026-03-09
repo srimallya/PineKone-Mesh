@@ -107,6 +107,10 @@ class HomeActivity : AppCompatActivity() {
                     startActivity(Intent(this, CustodyActivity::class.java))
                     true
                 }
+                R.id.action_settings -> {
+                    startActivity(Intent(this, SettingsActivity::class.java))
+                    true
+                }
                 R.id.action_radio_mode -> true
                 else -> false
             }
@@ -129,6 +133,9 @@ class HomeActivity : AppCompatActivity() {
             startActivity(Intent(this, InviteActivity::class.java))
         }
         binding.homeStatusCard.setOnClickListener {
+            startActivity(Intent(this, NetworkActivity::class.java))
+        }
+        binding.homeStatusDetails.setOnClickListener {
             startActivity(Intent(this, NetworkActivity::class.java))
         }
         binding.homeStatusCard.contentDescription = getString(R.string.home_status_open_details)
@@ -165,13 +172,9 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateFabVisibility(position: Int) {
+    private fun updateFabVisibility(@Suppress("UNUSED_PARAMETER") position: Int) {
         if (!::binding.isInitialized) return
-        if (position == 0) {
-            binding.fabInvite.show()
-        } else {
-            binding.fabInvite.hide()
-        }
+        binding.fabInvite.hide()
     }
 
     private fun observeStatusStrip() {

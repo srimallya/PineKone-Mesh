@@ -3,14 +3,18 @@ package com.pinekone.app.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.pinekone.app.R
 import com.pinekone.app.data.model.ChatMessage
+import com.pinekone.app.data.model.MessageContentType
 import com.pinekone.app.data.model.MessageDirection
 import com.pinekone.app.data.model.MessageStatus
 import com.pinekone.app.data.model.MessageTransport
@@ -19,12 +23,20 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class MessageAdapter(
-    private val onResend: (ChatMessage) -> Unit
+    private val onResend: (ChatMessage) -> Unit,
+    private val onOpenImage: (ChatMessage) -> Unit,
+    private val onPlayVoice: (ChatMessage) -> Unit
 ) : ListAdapter<ChatMessage, MessageAdapter.MessageViewHolder>(Diff) {
     private var traces: Map<String, MessageTraceSummary> = emptyMap()
+    private var showDiagnostics: Boolean = true
 
     fun updateTraces(value: Map<String, MessageTraceSummary>) {
         traces = value
+        notifyDataSetChanged()
+    }
+
+    fun setShowDiagnostics(enabled: Boolean) {
+        showDiagnostics = enabled
         notifyDataSetChanged()
     }
 
@@ -47,12 +59,30 @@ class MessageAdapter(
         val traceView = view.findViewById<TextView>(R.id.messageTrace)
         val statusChip = view.findViewById<Chip>(R.id.messageStatusChip)
         val retryView = view.findViewById<TextView>(R.id.messageRetry)
-        return MessageViewHolder(view, bodyView, metaView, traceView, statusChip, retryView, onResend)
+        val imageView = view.findViewById<ImageView>(R.id.messageImage)
+        val voiceRow = view.findViewById<View>(R.id.messageVoiceRow)
+        val voicePlay = view.findViewById<MaterialButton>(R.id.messageVoicePlay)
+        val voiceDuration = view.findViewById<TextView>(R.id.messageVoiceDuration)
+        return MessageViewHolder(
+            view,
+            bodyView,
+            metaView,
+            traceView,
+            statusChip,
+            retryView,
+            imageView,
+            voiceRow,
+            voicePlay,
+            voiceDuration,
+            onResend,
+            onOpenImage,
+            onPlayVoice
+        )
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
         val item = getItem(position)
-        holder.bind(item, traces[item.msgId])
+        holder.bind(item, traces[item.msgId], showDiagnostics)
     }
 
     class MessageViewHolder(
@@ -62,13 +92,25 @@ class MessageAdapter(
         private val trace: TextView,
         private val statusChip: Chip,
         private val retry: TextView?,
-        private val onResend: (ChatMessage) -> Unit
+        private val image: ImageView,
+        private val voiceRow: View,
+        private val voicePlay: MaterialButton,
+        private val voiceDuration: TextView,
+        private val onResend: (ChatMessage) -> Unit,
+        private val onOpenImage: (ChatMessage) -> Unit,
+        private val onPlayVoice: (ChatMessage) -> Unit
     ) : RecyclerView.ViewHolder(container) {
-        fun bind(message: ChatMessage, traceSummary: MessageTraceSummary?) {
+        fun bind(message: ChatMessage, traceSummary: MessageTraceSummary?, showDiagnostics: Boolean) {
             body.text = message.payload
+            body.visibility = if (message.payload.isBlank() && message.contentType != MessageContentType.TEXT) {
+                View.GONE
+            } else {
+                View.VISIBLE
+            }
+            renderContent(message)
             meta.text = formatMeta(message)
             renderStatusChip(message)
-            renderTrace(traceSummary)
+            renderTrace(traceSummary, showDiagnostics)
             if (message.direction == MessageDirection.OUTGOING && message.status == MessageStatus.FAILED) {
                 retry?.visibility = View.VISIBLE
                 retry?.setOnClickListener { onResend(message) }
@@ -105,8 +147,33 @@ class MessageAdapter(
             return listOf(statusSection, transportSection).joinToString(" • ")
         }
 
-        private fun renderTrace(traceSummary: MessageTraceSummary?) {
-            if (traceSummary == null) {
+        private fun renderContent(message: ChatMessage) {
+            when (message.contentType) {
+                MessageContentType.TEXT -> {
+                    image.visibility = View.GONE
+                    voiceRow.visibility = View.GONE
+                    image.setOnClickListener(null)
+                    voicePlay.setOnClickListener(null)
+                }
+                MessageContentType.IMAGE -> {
+                    image.visibility = View.VISIBLE
+                    voiceRow.visibility = View.GONE
+                    image.setImageURI((message.thumbnailUri ?: message.localUri).orEmpty().toUri())
+                    image.setOnClickListener { onOpenImage(message) }
+                    voicePlay.setOnClickListener(null)
+                }
+                MessageContentType.VOICE_NOTE -> {
+                    image.visibility = View.GONE
+                    voiceRow.visibility = View.VISIBLE
+                    voiceDuration.text = formatVoiceDuration(message.durationMs)
+                    voicePlay.setOnClickListener { onPlayVoice(message) }
+                    image.setOnClickListener(null)
+                }
+            }
+        }
+
+        private fun renderTrace(traceSummary: MessageTraceSummary?, showDiagnostics: Boolean) {
+            if (!showDiagnostics || traceSummary == null) {
                 trace.visibility = View.GONE
                 trace.text = ""
                 return
@@ -154,6 +221,13 @@ class MessageAdapter(
                 ContextCompat.getColor(context, backgroundRes)
             )
             statusChip.setTextColor(ContextCompat.getColor(context, foregroundRes))
+        }
+
+        private fun formatVoiceDuration(durationMs: Long?): String {
+            val totalSeconds = ((durationMs ?: 0L) / 1000L).toInt().coerceAtLeast(1)
+            val minutes = totalSeconds / 60
+            val seconds = totalSeconds % 60
+            return "%d:%02d".format(minutes, seconds)
         }
 
         private fun statusLabel(context: android.content.Context, status: MessageStatus): String = when (status) {

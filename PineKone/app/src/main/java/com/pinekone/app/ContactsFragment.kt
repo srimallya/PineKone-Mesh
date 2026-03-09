@@ -1,5 +1,6 @@
 package com.pinekone.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -54,13 +55,16 @@ class ContactsFragment : Fragment() {
 
         binding.contactList.layoutManager = LinearLayoutManager(requireContext())
         binding.contactList.adapter = adapter
+        binding.emptyContactsAction.setOnClickListener {
+            startActivity(Intent(requireContext(), InviteActivity::class.java))
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 viewModel.contacts.collect { contacts ->
                     val items = contacts.filterNot { it.isSelf }
                     adapter.submitList(items)
-                    binding.emptyContacts.isVisible = items.isEmpty()
+                    binding.emptyContactsCard.isVisible = items.isEmpty()
                 }
             }
         }

@@ -3,16 +3,28 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/pk_canvas"
     android:padding="24dp">
+
+    <ImageView
+        android:id="@+id/authLogo"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:contentDescription="@string/app_name"
+        android:src="@drawable/ic_pinekone_mark"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
         android:id="@+id/title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
         android:text="@string/auth_create_pin_title"
-        android:textAppearance="?attr/textAppearanceHeadlineMedium"
+        android:textAppearance="@style/TextAppearance.PineKone.Display"
+        android:textColor="@color/md_theme_on_surface"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/authLogo" />
 
     <TextView
         android:id="@+id/authDescription"
@@ -20,13 +32,15 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:text="@string/auth_description_setup"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textAppearance="@style/TextAppearance.PineKone.Body"
+        android:textColor="@color/md_theme_on_surface_variant"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/title" />
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/pinInputLayout"
+        style="@style/Widget.PineKone.InputLayout"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
@@ -41,11 +55,14 @@
             android:digits="0123456789"
             android:hint="@string/auth_new_pin_hint"
             android:inputType="numberPassword"
-            android:maxLength="6" />
+            android:maxLength="6"
+            android:textColor="@color/md_theme_on_surface"
+            android:textColorHint="@color/md_theme_on_surface_variant" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/confirmPinInputLayout"
+        style="@style/Widget.PineKone.InputLayout"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
@@ -60,11 +77,14 @@
             android:digits="0123456789"
             android:hint="@string/auth_confirm_pin_hint"
             android:inputType="numberPassword"
-            android:maxLength="6" />
+            android:maxLength="6"
+            android:textColor="@color/md_theme_on_surface"
+            android:textColorHint="@color/md_theme_on_surface_variant" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/authSubmitButton"
+        style="@style/Widget.PineKone.PrimaryButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
@@ -75,7 +95,7 @@
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/biometricButton"
-        style="@style/Widget.Material3.Button.OutlinedButton"
+        style="@style/Widget.PineKone.OutlinedButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"

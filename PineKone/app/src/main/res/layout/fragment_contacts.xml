@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@color/pk_canvas">
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/contactList"
@@ -11,12 +12,45 @@
         android:clipToPadding="false"
         android:scrollbarStyle="outsideOverlay" />
 
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/emptyContacts"
-        android:layout_width="wrap_content"
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/emptyContactsCard"
+        style="@style/Widget.PineKone.HighlightCard"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="@string/contacts_empty"
-        android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
+        android:layout_gravity="top"
+        android:layout_margin="16dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/emptyContactsTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/contacts_empty_title"
+                android:textAppearance="@style/TextAppearance.PineKone.SectionTitle" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/emptyContacts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/contacts_empty"
+                android:textAppearance="@style/TextAppearance.PineKone.Body"
+                android:textColor="@color/md_theme_on_surface_variant" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/emptyContactsAction"
+                style="@style/Widget.PineKone.PrimaryButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/contacts_empty_action" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </FrameLayout>

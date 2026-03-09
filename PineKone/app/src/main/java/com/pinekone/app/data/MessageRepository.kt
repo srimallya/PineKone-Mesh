@@ -4,6 +4,7 @@ import com.pinekone.app.data.db.ContactDao
 import com.pinekone.app.data.db.MessageDao
 import com.pinekone.app.data.db.MessageEntity
 import com.pinekone.app.data.model.ChatMessage
+import com.pinekone.app.data.model.MessageContentType
 import com.pinekone.app.data.model.MessageDirection
 import com.pinekone.app.data.model.MessageStatus
 import com.pinekone.app.data.model.MessageTransport
@@ -26,8 +27,15 @@ class MessageRepository(
         msgIdHex: String,
         senderFingerprint: String,
         payload: String,
+        contentType: MessageContentType,
         transport: MessageTransport,
-        status: MessageStatus
+        status: MessageStatus,
+        localUri: String? = null,
+        mimeType: String? = null,
+        fileName: String? = null,
+        byteSize: Long? = null,
+        durationMs: Long? = null,
+        thumbnailUri: String? = null
     ) {
         val now = System.currentTimeMillis()
         val entity = MessageEntity(
@@ -35,6 +43,13 @@ class MessageRepository(
             contactId = contactId,
             senderFingerprint = senderFingerprint,
             payload = payload,
+            contentType = contentType.name,
+            localUri = localUri,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs,
+            thumbnailUri = thumbnailUri,
             timestampEpochMillis = now,
             direction = MessageDirection.OUTGOING.name,
             transport = transport.name,
@@ -42,7 +57,7 @@ class MessageRepository(
             deliveredAt = null
         )
         messageDao.insert(entity)
-        contactDao.updateLastMessage(contactId, payload.take(120), now)
+        contactDao.updateLastMessage(contactId, snippetFor(contentType, payload, fileName), now)
         contactDao.updateLastSeen(contactId, now)
     }
 
@@ -51,7 +66,14 @@ class MessageRepository(
         msgIdHex: String,
         senderFingerprint: String,
         payload: String,
-        transport: MessageTransport
+        transport: MessageTransport,
+        contentType: MessageContentType = MessageContentType.TEXT,
+        localUri: String? = null,
+        mimeType: String? = null,
+        fileName: String? = null,
+        byteSize: Long? = null,
+        durationMs: Long? = null,
+        thumbnailUri: String? = null
     ) {
         val now = System.currentTimeMillis()
         val entity = MessageEntity(
@@ -59,6 +81,13 @@ class MessageRepository(
             contactId = contactId,
             senderFingerprint = senderFingerprint,
             payload = payload,
+            contentType = contentType.name,
+            localUri = localUri,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs,
+            thumbnailUri = thumbnailUri,
             timestampEpochMillis = now,
             direction = MessageDirection.INCOMING.name,
             transport = transport.name,
@@ -66,7 +95,7 @@ class MessageRepository(
             deliveredAt = now
         )
         messageDao.insert(entity)
-        contactDao.updateLastMessage(contactId, payload.take(120), now)
+        contactDao.updateLastMessage(contactId, snippetFor(contentType, payload, fileName), now)
         contactDao.updateLastSeen(contactId, now)
     }
 
@@ -90,10 +119,24 @@ class MessageRepository(
             contactId = contactId,
             senderFingerprint = senderFingerprint,
             payload = payload,
+            contentType = MessageContentType.valueOf(contentType),
+            localUri = localUri,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs,
+            thumbnailUri = thumbnailUri,
             timestamp = Instant.ofEpochMilli(timestampEpochMillis),
             direction = MessageDirection.valueOf(direction),
             status = MessageStatus.valueOf(status),
             transport = MessageTransport.valueOf(transport),
             deliveredAt = deliveredAt?.let { Instant.ofEpochMilli(it) }
         )
+
+    private fun snippetFor(contentType: MessageContentType, payload: String, fileName: String?): String =
+        when (contentType) {
+            MessageContentType.TEXT -> payload.take(120)
+            MessageContentType.IMAGE -> "Image${fileName?.let { ": $it" } ?: ""}"
+            MessageContentType.VOICE_NOTE -> "Voice note"
+        }
 }

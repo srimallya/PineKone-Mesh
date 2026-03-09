@@ -30,12 +30,25 @@ enum class MessageTransport {
     WEB
 }
 
+enum class MessageContentType {
+    TEXT,
+    IMAGE,
+    VOICE_NOTE
+}
+
 data class ChatMessage(
     val id: Long,
     val msgId: String,
     val contactId: String,
     val senderFingerprint: String,
     val payload: String,
+    val contentType: MessageContentType,
+    val localUri: String?,
+    val mimeType: String?,
+    val fileName: String?,
+    val byteSize: Long?,
+    val durationMs: Long?,
+    val thumbnailUri: String?,
     val timestamp: Instant,
     val direction: MessageDirection,
     val status: MessageStatus,

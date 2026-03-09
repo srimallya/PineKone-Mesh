@@ -58,6 +58,20 @@ data class MessageEntity(
     val senderFingerprint: String,
     @ColumnInfo(name = "payload")
     val payload: String,
+    @ColumnInfo(name = "content_type")
+    val contentType: String = "TEXT",
+    @ColumnInfo(name = "local_uri")
+    val localUri: String? = null,
+    @ColumnInfo(name = "mime_type")
+    val mimeType: String? = null,
+    @ColumnInfo(name = "file_name")
+    val fileName: String? = null,
+    @ColumnInfo(name = "byte_size")
+    val byteSize: Long? = null,
+    @ColumnInfo(name = "duration_ms")
+    val durationMs: Long? = null,
+    @ColumnInfo(name = "thumbnail_uri")
+    val thumbnailUri: String? = null,
     @ColumnInfo(name = "timestamp")
     val timestampEpochMillis: Long,
     @ColumnInfo(name = "direction")

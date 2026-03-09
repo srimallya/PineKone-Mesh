@@ -6,6 +6,8 @@ import com.pinekone.app.data.GovernanceRepository
 import com.pinekone.app.data.MessageRepository
 import com.pinekone.app.data.PublicChatRepository
 import com.pinekone.app.data.RoutingTelemetryRepository
+import com.pinekone.app.data.SettingsRepository
+import com.pinekone.app.data.AttachmentRepository
 import com.pinekone.app.data.db.PkDatabase
 import com.pinekone.app.engine.CapGovernor
 import com.pinekone.app.engine.DeviceCaps
@@ -42,6 +44,10 @@ class PineKoneApp : Application() {
         private set
     lateinit var governanceRepository: GovernanceRepository
         private set
+    lateinit var settingsRepository: SettingsRepository
+        private set
+    lateinit var attachmentRepository: AttachmentRepository
+        private set
     lateinit var authRepository: AuthRepository
         private set
 
@@ -70,6 +76,8 @@ class PineKoneApp : Application() {
         publicChatRepository = PublicChatRepository(database.publicMessageDao())
         routingTelemetryRepository = RoutingTelemetryRepository(database.routingTelemetryDao())
         governanceRepository = GovernanceRepository(database.governanceDao())
+        settingsRepository = SettingsRepository(this, appScope)
+        attachmentRepository = AttachmentRepository(this)
         val capGovernor = CapGovernor(
             DeviceCaps(
                 maxFanoutDevice = 2,
@@ -91,6 +99,7 @@ class PineKoneApp : Application() {
             publicChatRepository = publicChatRepository,
             routingTelemetryRepository = routingTelemetryRepository,
             governanceRepository = governanceRepository,
+            attachmentRepository = attachmentRepository,
             pathScorer = pathScorer,
             capGovernor = capGovernor,
             statusProvider = statusProvider

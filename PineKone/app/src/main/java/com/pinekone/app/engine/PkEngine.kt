@@ -1,12 +1,14 @@
 package com.pinekone.app.engine
 
 import android.util.Log
+import com.pinekone.app.data.AttachmentRepository
 import com.pinekone.app.data.ContactRepository
 import com.pinekone.app.data.GovernanceRepository
 import com.pinekone.app.data.MessageRepository
 import com.pinekone.app.data.PublicChatRepository
 import com.pinekone.app.data.RoutingTelemetryRepository
 import com.pinekone.app.data.model.DecisionReasonCode
+import com.pinekone.app.data.model.MessageContentType
 import com.pinekone.app.data.model.MessageDirection
 import com.pinekone.app.data.model.MessageStatus
 import com.pinekone.app.data.model.MessageTransport
@@ -26,6 +28,13 @@ import com.pinekone.app.protocol.PkControlFrame
 import com.pinekone.app.protocol.PingFrame
 import com.pinekone.app.protocol.PongFrame
 import com.pinekone.app.protocol.PkWebHints
+import com.pinekone.app.protocol.DirectAttachmentPayload
+import com.pinekone.app.protocol.DirectMessagePayload
+import com.pinekone.app.protocol.contentType
+import com.pinekone.app.protocol.fromBase64String
+import com.pinekone.app.protocol.toBase64String
+import com.pinekone.app.protocol.toDirectMessagePayloadOrNull
+import com.pinekone.app.protocol.toBytes
 import com.pinekone.app.protocol.toHexString
 import com.pinekone.app.protocol.hexToByteArray
 import com.pinekone.app.store.EnvelopeRecord
@@ -60,6 +69,9 @@ private const val MAX_RETRY_ATTEMPTS = 3
 private const val BACKOFF_MULTIPLIER = 2.0
 private const val MAX_BACKOFF_MS = 20_000L
 private const val PING_TIMEOUT_MS = 4_000L
+private const val MAX_IMAGE_BYTES = 3L * 1024L * 1024L
+private const val MAX_VOICE_BYTES = 3L * 1024L * 1024L
+private const val MAX_VOICE_DURATION_MS = 120_000L
 private val PUBLIC_HINT_MAGIC = "PKPUBMSG".encodeToByteArray()
 
 sealed interface SendLifecycleEvent {
@@ -98,6 +110,7 @@ class PkEngine(
     private val publicChatRepository: PublicChatRepository,
     private val routingTelemetryRepository: RoutingTelemetryRepository,
     private val governanceRepository: GovernanceRepository,
+    private val attachmentRepository: AttachmentRepository,
     private val pathScorer: RelationalPathScorer,
     private val capGovernor: CapGovernor,
     private val statusProvider: DeviceStatusProvider
@@ -176,13 +189,12 @@ class PkEngine(
                                 )
                             } else null
                             if (decryptedBytes != null) {
-                                val messageText = decryptedBytes.decodeToString()
                                 val transport = frame.via?.let { MessageTransport.MESH } ?: MessageTransport.WEB
-                                messageRepository.recordIncoming(
+                                storeIncomingMessage(
                                     contactId = it.nodeId,
                                     msgIdHex = msgIdHex,
                                     senderFingerprint = fingerprintHex,
-                                    payload = messageText,
+                                    plaintext = decryptedBytes,
                                     transport = transport
                                 )
                                 frame.via?.let { peer ->
@@ -317,6 +329,86 @@ class PkEngine(
         return SendResult(envelope, decision, reasonCode)
     }
 
+    private suspend fun storeIncomingMessage(
+        contactId: String,
+        msgIdHex: String,
+        senderFingerprint: String,
+        plaintext: ByteArray,
+        transport: MessageTransport
+    ) {
+        val wrapped = plaintext.toDirectMessagePayloadOrNull()
+        if (wrapped == null) {
+            messageRepository.recordIncoming(
+                contactId = contactId,
+                msgIdHex = msgIdHex,
+                senderFingerprint = senderFingerprint,
+                payload = plaintext.decodeToString(),
+                transport = transport
+            )
+            return
+        }
+
+        val contentType = wrapped.contentType()
+        val attachment = wrapped.attachment
+        val stored = if (attachment != null && wrapped.dataBase64 != null && contentType != MessageContentType.TEXT) {
+            attachmentRepository.persistIncomingAttachment(
+                msgId = msgIdHex,
+                contentType = contentType,
+                mimeType = attachment.mimeType,
+                fileName = attachment.fileName,
+                bytes = wrapped.dataBase64.fromBase64String()
+            )
+        } else {
+            null
+        }
+
+        messageRepository.recordIncoming(
+            contactId = contactId,
+            msgIdHex = msgIdHex,
+            senderFingerprint = senderFingerprint,
+            payload = wrapped.text.orEmpty(),
+            transport = transport,
+            contentType = contentType,
+            localUri = stored?.localUri,
+            mimeType = attachment?.mimeType ?: stored?.mimeType,
+            fileName = attachment?.fileName ?: stored?.fileName,
+            byteSize = attachment?.byteSize ?: stored?.byteSize,
+            durationMs = attachment?.durationMs ?: stored?.durationMs,
+            thumbnailUri = stored?.thumbnailUri
+        )
+    }
+
+    private fun encodeDirectPayload(
+        contentType: MessageContentType,
+        text: String,
+        attachmentBytes: ByteArray? = null,
+        mimeType: String? = null,
+        fileName: String? = null,
+        byteSize: Long? = null,
+        durationMs: Long? = null
+    ): ByteArray {
+        val type = when (contentType) {
+            MessageContentType.TEXT -> "text"
+            MessageContentType.IMAGE -> "image"
+            MessageContentType.VOICE_NOTE -> "voice_note"
+        }
+        return DirectMessagePayload(
+            type = type,
+            text = text.ifBlank { null },
+            attachment = if (attachmentBytes != null && mimeType != null && byteSize != null) {
+                DirectAttachmentPayload(
+                    mimeType = mimeType,
+                    fileName = fileName,
+                    byteSize = byteSize,
+                    durationMs = durationMs
+                )
+            } else {
+                null
+            },
+            dataBase64 = attachmentBytes?.toBase64String()
+        ).toBytes()
+    }
+
     private fun handleControlFrame(frame: PkControlFrame, peer: PkPeer?) {
         when (frame) {
             is HackFrame -> {
@@ -372,10 +464,93 @@ class PkEngine(
     }
 
     suspend fun sendMessage(contactId: String, messageText: String): SendResult? {
+        return sendDirectPayload(
+            contactId = contactId,
+            payloadText = messageText,
+            contentType = MessageContentType.TEXT
+        )
+    }
+
+    suspend fun sendImageMessage(
+        contactId: String,
+        payloadText: String,
+        localUri: String,
+        mimeType: String,
+        fileName: String,
+        byteSize: Long,
+        bytes: ByteArray,
+        thumbnailUri: String?
+    ): SendResult? {
+        if (byteSize > MAX_IMAGE_BYTES) {
+            recordMediaReject(contactId, DecisionReasonCode.PAYLOAD_TOO_LARGE, "image exceeds ${MAX_IMAGE_BYTES / 1024 / 1024}MB")
+            return null
+        }
+        return sendDirectPayload(
+            contactId = contactId,
+            payloadText = payloadText,
+            contentType = MessageContentType.IMAGE,
+            attachmentBytes = bytes,
+            localUri = localUri,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            thumbnailUri = thumbnailUri
+        )
+    }
+
+    suspend fun sendVoiceNote(
+        contactId: String,
+        localUri: String,
+        fileName: String,
+        byteSize: Long,
+        durationMs: Long?,
+        bytes: ByteArray
+    ): SendResult? {
+        if (durationMs != null && durationMs > MAX_VOICE_DURATION_MS) {
+            recordMediaReject(contactId, DecisionReasonCode.PAYLOAD_TOO_LARGE, "voice note exceeds 120s")
+            return null
+        }
+        if (byteSize > MAX_VOICE_BYTES) {
+            recordMediaReject(contactId, DecisionReasonCode.PAYLOAD_TOO_LARGE, "voice note exceeds media cap")
+            return null
+        }
+        return sendDirectPayload(
+            contactId = contactId,
+            payloadText = "",
+            contentType = MessageContentType.VOICE_NOTE,
+            attachmentBytes = bytes,
+            localUri = localUri,
+            mimeType = "audio/mp4",
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs
+        )
+    }
+
+    private suspend fun sendDirectPayload(
+        contactId: String,
+        payloadText: String,
+        contentType: MessageContentType,
+        attachmentBytes: ByteArray? = null,
+        localUri: String? = null,
+        mimeType: String? = null,
+        fileName: String? = null,
+        byteSize: Long? = null,
+        durationMs: Long? = null,
+        thumbnailUri: String? = null
+    ): SendResult? {
         val contact = contactRepository.getContact(contactId) ?: return null
         val contactPublicKey = contact.publicKey ?: return null
         val identity = identityRepository.getIdentity()
-        val payloadBytes = messageText.encodeToByteArray()
+        val payloadBytes = encodeDirectPayload(
+            contentType = contentType,
+            text = payloadText,
+            attachmentBytes = attachmentBytes,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs
+        )
         val ciphertext = com.pinekone.app.crypto.PkCrypto.encrypt(
             plaintext = payloadBytes,
             recipientPublicKeyHex = contactPublicKey,
@@ -435,9 +610,16 @@ class PkEngine(
             contactId = contact.nodeId,
             msgIdHex = msgIdHex,
             senderFingerprint = identity.fingerprint.toHexString(),
-            payload = messageText,
+            payload = payloadText,
+            contentType = contentType,
             transport = transport,
-            status = status
+            status = status,
+            localUri = localUri,
+            mimeType = mimeType,
+            fileName = fileName,
+            byteSize = byteSize,
+            durationMs = durationMs,
+            thumbnailUri = thumbnailUri
         )
         recordDecision(
             msgIdHex = msgIdHex,
@@ -446,7 +628,7 @@ class PkEngine(
             reason = result.reasonCode,
             transport = transport.name,
             peerId = peer?.id,
-            detail = scoredPeer?.explanation ?: "initial send"
+            detail = scoredPeer?.explanation ?: "initial send • ${contentType.name.lowercase()}"
         )
 
         if (transport == MessageTransport.MESH && result.decision is ForwardDecision.Allowed && peer != null) {
@@ -469,7 +651,24 @@ class PkEngine(
         val contact = contactRepository.getContact(contactId) ?: return null
         val contactPublicKey = contact.publicKey ?: return null
         val identity = identityRepository.getIdentity()
-        val payloadBytes = message.payload.encodeToByteArray()
+        val attachmentBytes = when (message.contentType) {
+            MessageContentType.TEXT -> null
+            else -> {
+                val localUri = message.localUri ?: return null
+                val file = java.io.File(android.net.Uri.parse(localUri).path ?: return null)
+                if (!file.exists()) return null
+                file.readBytes()
+            }
+        }
+        val payloadBytes = encodeDirectPayload(
+            contentType = message.contentType,
+            text = message.payload,
+            attachmentBytes = attachmentBytes,
+            mimeType = message.mimeType,
+            fileName = message.fileName,
+            byteSize = message.byteSize,
+            durationMs = message.durationMs
+        )
         val ciphertext = com.pinekone.app.crypto.PkCrypto.encrypt(
             plaintext = payloadBytes,
             recipientPublicKeyHex = contactPublicKey,
@@ -541,6 +740,12 @@ class PkEngine(
 
         if (status == MessageStatus.SENT && peer != null && result.decision is ForwardDecision.Allowed) {
             scheduleAckWatch(contactId, msgIdHex, result.envelope, peer.id)
+        } else if (status == MessageStatus.PENDING && peer == null) {
+            uploadToCustody(
+                envelope = result.envelope,
+                contactId = contactId,
+                detail = "resend no direct mesh peer"
+            )
         } else if (status == MessageStatus.PENDING && result.decision == ForwardDecision.DeclinedBattery) {
             uploadToCustody(
                 envelope = result.envelope,
@@ -550,6 +755,19 @@ class PkEngine(
         }
 
         return result
+    }
+
+    private suspend fun recordMediaReject(contactId: String, reason: DecisionReasonCode, detail: String) {
+        val msgIdHex = ByteArray(16).apply(random::nextBytes).toHexString()
+        recordDecision(
+            msgIdHex = msgIdHex,
+            contactId = contactId,
+            decision = RoutingDecision.STORE_CARRY,
+            reason = reason,
+            transport = null,
+            peerId = null,
+            detail = detail
+        )
     }
 
     suspend fun postPublicMessage(content: String) {

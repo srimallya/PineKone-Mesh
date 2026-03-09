@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.pinekone.app.R
-import com.pinekone.app.engine.PkPeer
 import com.pinekone.app.engine.TransportKind
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -29,8 +28,8 @@ data class PingUiState(
 )
 
 class PeerAdapter(
-    private val onPing: ((PkPeer) -> Unit)? = null
-) : ListAdapter<PkPeer, PeerAdapter.PeerViewHolder>(Diff) {
+    private val onPing: ((PeerPresentation) -> Unit)? = null
+) : ListAdapter<PeerPresentation, PeerAdapter.PeerViewHolder>(Diff) {
 
     private var pingStates: Map<String, PingUiState> = emptyMap()
 
@@ -48,7 +47,7 @@ class PeerAdapter(
 
     override fun onBindViewHolder(holder: PeerViewHolder, position: Int) {
         val peer = getItem(position)
-        holder.bind(peer, pingStates[peer.id], onPing)
+        holder.bind(peer, pingStates[peer.peer.id], onPing)
     }
 
     class PeerViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -61,14 +60,38 @@ class PeerAdapter(
         private val pingButton: MaterialButton? = itemView.findViewById(R.id.peerPing)
         private val pingStatusView: TextView? = itemView.findViewById(R.id.peerPingStatus)
 
-        fun bind(peer: PkPeer, state: PingUiState?, onPing: ((PkPeer) -> Unit)?) {
+        fun bind(presentation: PeerPresentation, state: PingUiState?, onPing: ((PeerPresentation) -> Unit)?) {
+            val peer = presentation.peer
             name.text = peer.displayName
             val timestamp = formatter.format(peer.lastSeen)
-            relationBadge.text = itemView.context.getString(R.string.nearby_relation_l1)
-            tintChip(relationBadge, R.color.pk_chip_success_bg, R.color.pk_chip_success_fg)
-            roleSummary.text = itemView.context.getString(R.string.nearby_relation_direct)
-            trustChip.text = itemView.context.getString(R.string.nearby_trust_unverified)
-            tintChip(trustChip, R.color.pk_chip_neutral_bg, R.color.pk_chip_neutral_fg)
+            relationBadge.text = when (presentation.relationDistance) {
+                0, 1 -> itemView.context.getString(R.string.nearby_relation_l1)
+                2 -> itemView.context.getString(R.string.nearby_relation_l2)
+                else -> itemView.context.getString(R.string.nearby_relation_distant)
+            }
+            tintChip(
+                relationBadge,
+                if (presentation.isTrusted) R.color.pk_chip_success_bg else R.color.pk_chip_neutral_bg,
+                if (presentation.isTrusted) R.color.pk_chip_success_fg else R.color.pk_chip_neutral_fg
+            )
+            roleSummary.text = when {
+                presentation.isRevoked -> itemView.context.getString(R.string.nearby_trust_revoked)
+                presentation.isContact -> itemView.context.getString(R.string.nearby_relation_direct)
+                presentation.isTrusted -> itemView.context.getString(R.string.nearby_relation_trusted)
+                else -> itemView.context.getString(R.string.nearby_relation_unverified)
+            }
+            trustChip.text = when {
+                presentation.isRevoked -> itemView.context.getString(R.string.nearby_trust_revoked)
+                presentation.isTrusted -> itemView.context.getString(R.string.nearby_trust_trusted)
+                presentation.isContact -> itemView.context.getString(R.string.nearby_trust_contact)
+                else -> itemView.context.getString(R.string.nearby_trust_unverified)
+            }
+            when {
+                presentation.isRevoked -> tintChip(trustChip, R.color.pk_chip_error_bg, R.color.pk_chip_error_fg)
+                presentation.isTrusted -> tintChip(trustChip, R.color.pk_chip_success_bg, R.color.pk_chip_success_fg)
+                presentation.isContact -> tintChip(trustChip, R.color.pk_chip_info_bg, R.color.pk_chip_info_fg)
+                else -> tintChip(trustChip, R.color.pk_chip_neutral_bg, R.color.pk_chip_neutral_fg)
+            }
             transportChip.text = if (peer.transport == TransportKind.MESH) {
                 itemView.context.getString(R.string.nearby_transport_mesh_chip)
             } else {
@@ -85,7 +108,7 @@ class PeerAdapter(
                 (peer.quality * 100).toInt().coerceIn(0, 100)
             )
             meta.text = listOfNotNull(
-                itemView.context.getString(R.string.nearby_relation_direct),
+                presentation.visibilityLabel,
                 itemView.context.getString(R.string.nearby_seen_time, timestamp),
                 battery,
                 quality
@@ -129,7 +152,7 @@ class PeerAdapter(
             }
 
             pingButton.setOnClickListener {
-                onPing(peer)
+                onPing(presentation)
             }
         }
 
@@ -146,9 +169,10 @@ class PeerAdapter(
         }
     }
 
-    private object Diff : DiffUtil.ItemCallback<PkPeer>() {
-        override fun areItemsTheSame(oldItem: PkPeer, newItem: PkPeer): Boolean = oldItem.id == newItem.id
+    private object Diff : DiffUtil.ItemCallback<PeerPresentation>() {
+        override fun areItemsTheSame(oldItem: PeerPresentation, newItem: PeerPresentation): Boolean =
+            oldItem.peer.id == newItem.peer.id
 
-        override fun areContentsTheSame(oldItem: PkPeer, newItem: PkPeer): Boolean = oldItem == newItem
+        override fun areContentsTheSame(oldItem: PeerPresentation, newItem: PeerPresentation): Boolean = oldItem == newItem
     }
 }

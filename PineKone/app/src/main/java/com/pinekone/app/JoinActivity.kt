@@ -18,6 +18,7 @@ import com.pinekone.app.databinding.DialogContactNameBinding
 import com.pinekone.app.data.model.GovernanceRole
 import com.pinekone.app.ui.MeshViewModel
 import com.pinekone.app.ui.PeerAdapter
+import com.pinekone.app.ui.PeerPresentation
 import java.time.Instant
 import kotlinx.coroutines.launch
 
@@ -63,7 +64,18 @@ class JoinActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 viewModel.peers.collect { peers ->
-                    peerAdapter.submitList(peers)
+                    peerAdapter.submitList(
+                        peers.map { peer ->
+                            PeerPresentation(
+                                peer = peer,
+                                isContact = false,
+                                isTrusted = false,
+                                isRevoked = false,
+                                relationDistance = 4,
+                                visibilityLabel = getString(R.string.settings_map_all)
+                            )
+                        }
+                    )
                 }
             }
         }
