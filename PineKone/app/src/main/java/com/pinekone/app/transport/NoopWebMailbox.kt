@@ -12,6 +12,7 @@ import java.time.Instant
 class NoopWebMailbox : WebTransport {
     private val custodyFlow = MutableSharedFlow<CustodyTicket>(extraBufferCapacity = 8)
     override val custodyTickets: Flow<CustodyTicket> = custodyFlow.asSharedFlow()
+    override val isConfigured: Boolean = false
 
     override suspend fun start() {
         // nothing to do
@@ -22,15 +23,9 @@ class NoopWebMailbox : WebTransport {
     }
 
     override suspend fun upload(envelope: PkEnvelope): CustodyResult {
-        val ticket = CustodyTicket(
-            msgIdHex = envelope.msgId.joinToString("") { "%02x".format(it) },
-            expiryEpochSeconds = Instant.now().plusSeconds(DEFAULT_TTL_SECONDS).epochSecond
+        return CustodyResult.Rejected(
+            code = "unconfigured",
+            message = "Web mailbox is not configured"
         )
-        custodyFlow.emit(ticket)
-        return CustodyResult.Accepted(ticket)
-    }
-
-    companion object {
-        private const val DEFAULT_TTL_SECONDS = 3_600L
     }
 }

@@ -167,6 +167,7 @@ class NearbyFragment : Fragment() {
                     binding.mapPingButton.isEnabled = peers.isNotEmpty()
                     binding.mapPingButton.visibility =
                         if (binding.mapContainer.isVisible) View.VISIBLE else View.GONE
+                    binding.viewModeToggle.isVisible = peers.isNotEmpty()
                     binding.viewModeMap.isEnabled = peers.isNotEmpty()
                     if (peers.isEmpty() && binding.mapContainer.isVisible) {
                         binding.viewModeToggle.check(binding.viewModeList.id)

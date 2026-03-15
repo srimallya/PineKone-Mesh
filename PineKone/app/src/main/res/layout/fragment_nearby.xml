@@ -68,20 +68,21 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
         android:layout_marginTop="12dp"
+        android:visibility="gone"
         app:checkedButton="@id/viewModeList"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/nearbySummaryCard">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/viewModeList"
-            style="@style/Widget.PineKone.TonalButton"
+            style="@style/Widget.PineKone.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/nearby_view_list" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/viewModeMap"
-            style="@style/Widget.PineKone.TonalButton"
+            style="@style/Widget.PineKone.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/nearby_view_map" />

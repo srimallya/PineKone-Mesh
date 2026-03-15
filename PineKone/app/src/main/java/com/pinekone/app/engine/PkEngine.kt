@@ -590,20 +590,23 @@ class PkEngine(
         )
 
         val msgIdHex = result.envelope.msgId.toHexString()
-        val transport = if (peer != null && result.decision is ForwardDecision.Allowed) {
-            MessageTransport.MESH
+        val sentOverMesh = peer != null && result.decision is ForwardDecision.Allowed
+        val canUseWebCustody = webTransport.isConfigured
+        val transport = if (sentOverMesh) MessageTransport.MESH else if (canUseWebCustody) MessageTransport.WEB else MessageTransport.MESH
+        val status = when {
+            sentOverMesh -> MessageStatus.SENT
+            canUseWebCustody -> MessageStatus.PENDING
+            else -> MessageStatus.FAILED
+        }
+        val decision = when {
+            sentOverMesh -> RoutingDecision.FORWARD_NOW
+            canUseWebCustody -> RoutingDecision.STORE_CARRY
+            else -> RoutingDecision.DELIVERY_FAILED
+        }
+        val decisionReason = if (!sentOverMesh && !canUseWebCustody) {
+            DecisionReasonCode.NO_VIABLE_PATH
         } else {
-            MessageTransport.WEB
-        }
-        val status = when (result.decision) {
-            is ForwardDecision.Allowed -> MessageStatus.SENT
-            ForwardDecision.StoreCarry -> MessageStatus.PENDING
-            ForwardDecision.DeclinedBattery -> MessageStatus.PENDING
-        }
-        val decision = when (result.decision) {
-            is ForwardDecision.Allowed -> RoutingDecision.FORWARD_NOW
-            ForwardDecision.StoreCarry -> RoutingDecision.STORE_CARRY
-            ForwardDecision.DeclinedBattery -> RoutingDecision.STORE_CARRY
+            result.reasonCode
         }
 
         messageRepository.recordOutgoing(
@@ -625,10 +628,14 @@ class PkEngine(
             msgIdHex = msgIdHex,
             contactId = contact.nodeId,
             decision = decision,
-            reason = result.reasonCode,
+            reason = decisionReason,
             transport = transport.name,
             peerId = peer?.id,
-            detail = scoredPeer?.explanation ?: "initial send • ${contentType.name.lowercase()}"
+            detail = if (!sentOverMesh && !canUseWebCustody) {
+                "no direct mesh peer • web delivery is not configured"
+            } else {
+                scoredPeer?.explanation ?: "initial send • ${contentType.name.lowercase()}"
+            }
         )
 
         if (transport == MessageTransport.MESH && result.decision is ForwardDecision.Allowed && peer != null) {
@@ -640,6 +647,8 @@ class PkEngine(
                 contactId = contact.nodeId,
                 detail = "no direct mesh peer"
             )
+        } else if (!sentOverMesh && !canUseWebCustody) {
+            sendEventsMutable.emit(SendLifecycleEvent.Failed(contact.nodeId, msgIdHex))
         }
 
         return result
@@ -713,29 +722,37 @@ class PkEngine(
             msgIdOverride = msgIdBytes
         )
 
-        val status = when (result.decision) {
-            is ForwardDecision.Allowed -> MessageStatus.SENT
-            ForwardDecision.StoreCarry -> MessageStatus.PENDING
-            ForwardDecision.DeclinedBattery -> MessageStatus.PENDING
+        val sentOverMesh = peer != null && result.decision is ForwardDecision.Allowed
+        val canUseWebCustody = webTransport.isConfigured
+        val status = when {
+            sentOverMesh -> MessageStatus.SENT
+            canUseWebCustody -> MessageStatus.PENDING
+            else -> MessageStatus.FAILED
         }
         messageRepository.markStatus(contactId, msgIdHex, status)
-        val decision = when (result.decision) {
-            is ForwardDecision.Allowed -> RoutingDecision.FORWARD_NOW
-            ForwardDecision.StoreCarry -> RoutingDecision.STORE_CARRY
-            ForwardDecision.DeclinedBattery -> RoutingDecision.STORE_CARRY
+        val decision = when {
+            sentOverMesh -> RoutingDecision.FORWARD_NOW
+            canUseWebCustody -> RoutingDecision.STORE_CARRY
+            else -> RoutingDecision.DELIVERY_FAILED
         }
         recordDecision(
             msgIdHex = msgIdHex,
             contactId = contactId,
             decision = decision,
-            reason = result.reasonCode,
-            transport = if (peer != null && result.decision is ForwardDecision.Allowed) {
+            reason = if (!sentOverMesh && !canUseWebCustody) DecisionReasonCode.NO_VIABLE_PATH else result.reasonCode,
+            transport = if (sentOverMesh) {
                 MessageTransport.MESH.name
-            } else {
+            } else if (canUseWebCustody) {
                 MessageTransport.WEB.name
+            } else {
+                MessageTransport.MESH.name
             },
             peerId = peer?.id,
-            detail = scoredPeer?.explanation ?: "resend"
+            detail = if (!sentOverMesh && !canUseWebCustody) {
+                "resend blocked • no direct mesh peer • web delivery is not configured"
+            } else {
+                scoredPeer?.explanation ?: "resend"
+            }
         )
 
         if (status == MessageStatus.SENT && peer != null && result.decision is ForwardDecision.Allowed) {
@@ -752,6 +769,8 @@ class PkEngine(
                 contactId = contactId,
                 detail = "resend battery fallback"
             )
+        } else if (status == MessageStatus.FAILED) {
+            sendEventsMutable.emit(SendLifecycleEvent.Failed(contactId, msgIdHex))
         }
 
         return result

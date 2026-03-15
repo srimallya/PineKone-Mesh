@@ -29,6 +29,7 @@ class HttpWebMailbox(
 
     private val custodyFlow = MutableSharedFlow<CustodyTicket>(extraBufferCapacity = 8)
     override val custodyTickets: Flow<CustodyTicket> = custodyFlow.asSharedFlow()
+    override val isConfigured: Boolean = true
 
     private val uploadUrl = if (baseUrl.endsWith("/")) {
         "${baseUrl}envelopes"

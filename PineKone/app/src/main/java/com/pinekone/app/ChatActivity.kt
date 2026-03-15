@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -153,7 +154,7 @@ class ChatActivity : AppCompatActivity() {
                         is SendLifecycleEvent.Failed -> {
                             Snackbar.make(
                                 binding.root,
-                                R.string.message_delivery_failed,
+                                R.string.message_delivery_unavailable,
                                 Snackbar.LENGTH_LONG
                             ).show()
                         }
@@ -162,6 +163,10 @@ class ChatActivity : AppCompatActivity() {
             }
         }
 
+        binding.messageSendButton.isEnabled = false
+        binding.messageInput.doAfterTextChanged { text ->
+            binding.messageSendButton.isEnabled = !text.isNullOrBlank() && binding.messageInput.isEnabled
+        }
         binding.messageSendButton.setOnClickListener {
             val text = binding.messageInput.text?.toString().orEmpty().trim()
             if (text.isEmpty()) {

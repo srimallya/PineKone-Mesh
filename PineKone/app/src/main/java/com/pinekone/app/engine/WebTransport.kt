@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface WebTransport {
     val custodyTickets: Flow<CustodyTicket>
+    val isConfigured: Boolean
 
     suspend fun start()
     suspend fun stop()
