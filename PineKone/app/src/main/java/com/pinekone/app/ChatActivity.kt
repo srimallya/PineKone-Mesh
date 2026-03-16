@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -76,6 +77,8 @@ class ChatActivity : AppCompatActivity() {
         )
 
         setSupportActionBar(binding.chatToolbar)
+        binding.chatToolbar.setTitleTextColor(ContextCompat.getColor(this, R.color.md_theme_on_surface))
+        binding.chatToolbar.navigationIcon?.setTint(ContextCompat.getColor(this, R.color.md_theme_on_surface))
         supportActionBar?.title = initialContactName
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         binding.chatToolbar.setNavigationOnClickListener { finish() }

@@ -30,11 +30,14 @@ import androidx.core.content.ContextCompat
 import com.pinekone.app.identity.IdentityRepository
 import com.pinekone.app.protocol.PkFormats
 import java.nio.charset.Charset
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -47,6 +50,11 @@ import kotlinx.serialization.encodeToString
 
 private const val BLE_TAG = "BleGattTransport"
 private val UTF8: Charset = Charsets.UTF_8
+private const val DEFAULT_BLE_MTU = 23
+private const val MAX_BLE_MTU = 517
+private const val BLE_FRAME_SINGLE: Byte = 0x00
+private const val BLE_FRAME_START: Byte = 0x01
+private const val BLE_FRAME_CONTINUATION: Byte = 0x02
 
 private val SERVICE_UUID: UUID = UUID.fromString("3047f00d-72f9-4cce-9ada-ff45a149a4c1")
 private val CTRL_CHAR_UUID: UUID = UUID.fromString("3047c7d0-5d41-4d07-9b73-2a6dc036e3a1")
@@ -129,6 +137,7 @@ class BleGattTransport(
             offset: Int,
             value: ByteArray
         ) {
+            descriptor.value = value
             if (responseNeeded) {
                 if (!hasConnectPermission()) {
                     Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot respond to descriptor write from ${device.address}")
@@ -295,31 +304,18 @@ class BleGattTransport(
             gatt != null -> {
                 val service = gatt.getService(SERVICE_UUID) ?: return false
                 val characteristic = service.getCharacteristic(DATA_CHAR_UUID) ?: return false
-                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 if (!hasConnectPermission()) {
                     Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot write data to ${peer.id}")
                     return false
                 }
-                try {
-                    characteristic.value = frame
-                    gatt.writeCharacteristic(characteristic)
-                } catch (error: SecurityException) {
-                    Log.e(BLE_TAG, "SecurityException while writing BLE data to ${peer.id}", error)
-                    false
-                }
+                sendClientChunks(context, gatt, characteristic, frame)
             }
             serverDevice != null -> {
                 if (!hasConnectPermission()) {
                     Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot notify ${peer.id}")
                     return false
                 }
-                try {
-                    dataChar.value = frame
-                    gattServer?.notifyCharacteristicChanged(serverDevice, dataChar, false) ?: false
-                } catch (error: SecurityException) {
-                    Log.e(BLE_TAG, "SecurityException while notifying BLE data to ${peer.id}", error)
-                    false
-                }
+                sendServerChunks(context, serverDevice, dataChar, frame)
             }
             else -> false
         }
@@ -421,6 +417,13 @@ class BleGattTransport(
                     peerContext.gatt = gatt
                     if (hasConnectPermission()) {
                         try {
+                            gatt.requestMtu(MAX_BLE_MTU)
+                        } catch (error: SecurityException) {
+                            Log.e(BLE_TAG, "SecurityException while requesting MTU for ${device.address}", error)
+                        }
+                    }
+                    if (hasConnectPermission()) {
+                        try {
                             gatt.discoverServices()
                         } catch (error: SecurityException) {
                             Log.e(BLE_TAG, "SecurityException while discovering services for ${device.address}", error)
@@ -451,26 +454,18 @@ class BleGattTransport(
                     return
                 }
                 val ctrl = gatt.getService(SERVICE_UUID)?.getCharacteristic(CTRL_CHAR_UUID)
-                val data = gatt.getService(SERVICE_UUID)?.getCharacteristic(DATA_CHAR_UUID)
                 if (ctrl != null) {
-                    try {
-                        gatt.setCharacteristicNotification(ctrl, true)
-                    } catch (error: SecurityException) {
-                        Log.e(BLE_TAG, "SecurityException enabling control notifications for ${device.address}", error)
-                    }
-                    try {
-                        ctrl.value = localHandshakeBytes
-                        gatt.writeCharacteristic(ctrl)
-                    } catch (error: SecurityException) {
-                        Log.e(BLE_TAG, "SecurityException writing handshake to ${device.address}", error)
+                    peerContext.setupState = BleSetupState.ENABLING_CONTROL
+                    if (!enableNotifications(gatt, ctrl, device.address)) {
+                        Log.w(BLE_TAG, "Failed to enable control notifications for ${device.address}")
                     }
                 }
-                if (data != null) {
-                    try {
-                        gatt.setCharacteristicNotification(data, true)
-                    } catch (error: SecurityException) {
-                        Log.e(BLE_TAG, "SecurityException enabling data notifications for ${device.address}", error)
-                    }
+            }
+
+            override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+                if (status == BluetoothGatt.GATT_SUCCESS && mtu > 0) {
+                    peerContext.negotiatedMtu = mtu
+                    Log.d(BLE_TAG, "Negotiated MTU $mtu for ${device.address}")
                 }
             }
 
@@ -481,11 +476,51 @@ class BleGattTransport(
                 handleIncomingBytes(device.address, characteristic.value)
             }
 
+            override fun onDescriptorWrite(
+                gatt: BluetoothGatt,
+                descriptor: BluetoothGattDescriptor,
+                status: Int
+            ) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(BLE_TAG, "Descriptor write failed for ${device.address}: $status")
+                    return
+                }
+                when (descriptor.characteristic.uuid) {
+                    CTRL_CHAR_UUID -> {
+                        scope.launch {
+                            sendHandshakeToClient(peerContext, gatt)
+                        }
+                    }
+                    DATA_CHAR_UUID -> {
+                        peerContext.setupState = BleSetupState.READY
+                    }
+                }
+            }
+
             override fun onCharacteristicWrite(
                 gatt: BluetoothGatt,
                 characteristic: BluetoothGattCharacteristic,
                 status: Int
             ) {
+                val pendingWrite = peerContext.pendingWrite
+                if (pendingWrite != null && peerContext.pendingWriteUuid == characteristic.uuid) {
+                    peerContext.pendingWrite = null
+                    peerContext.pendingWriteUuid = null
+                    pendingWrite.complete(status == BluetoothGatt.GATT_SUCCESS)
+                    return
+                }
+                if (characteristic.uuid == CTRL_CHAR_UUID) {
+                    val data = gatt.getService(SERVICE_UUID)?.getCharacteristic(DATA_CHAR_UUID)
+                    if (status == BluetoothGatt.GATT_SUCCESS && data != null) {
+                        peerContext.setupState = BleSetupState.ENABLING_DATA
+                        if (!enableNotifications(gatt, data, device.address)) {
+                            Log.w(BLE_TAG, "Failed to enable data notifications for ${device.address}")
+                        }
+                    } else {
+                        Log.w(BLE_TAG, "Characteristic write failed for ${device.address}: $status")
+                    }
+                    return
+                }
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     Log.w(BLE_TAG, "Characteristic write failed for ${device.address}: $status")
                 }
@@ -500,8 +535,9 @@ class BleGattTransport(
 
     private fun handleIncomingBytes(address: String, bytes: ByteArray) {
         scope.launch {
+            val packetBytes = decodeBleFrame(address, bytes) ?: return@launch
             val packet = runCatching {
-                val json = bytes.toString(UTF8)
+                val json = packetBytes.toString(UTF8)
                 PkFormats.json.decodeFromString(MeshPacket.serializer(), json)
             }.getOrElse {
                 Log.e(BLE_TAG, "Failed to decode incoming BLE payload", it)
@@ -549,30 +585,19 @@ class BleGattTransport(
             gatt != null -> {
                 val ctrl = gatt.getService(SERVICE_UUID)?.getCharacteristic(CTRL_CHAR_UUID)
                 if (ctrl != null) {
-                    if (!hasConnectPermission()) {
-                        Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot write handshake to ${radioPeer.id}")
-                    } else {
-                        try {
-                            ctrl.value = localHandshakeBytes
-                            gatt.writeCharacteristic(ctrl)
-                        } catch (error: SecurityException) {
-                            Log.e(BLE_TAG, "SecurityException writing handshake to ${radioPeer.id}", error)
-                        }
+                    val shouldReply = context.setupState == BleSetupState.READY
+                    if (shouldReply) {
+                        sendHandshakeToClient(context, gatt)
                     }
                 }
             }
             device != null -> {
                 val ctrl = gattServer?.getService(SERVICE_UUID)?.getCharacteristic(CTRL_CHAR_UUID)
                 if (ctrl != null) {
-                    if (!hasConnectPermission()) {
-                        Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot notify handshake to ${radioPeer.id}")
-                    } else {
-                        try {
-                            ctrl.value = localHandshakeBytes
-                            gattServer?.notifyCharacteristicChanged(device, ctrl, false)
-                        } catch (error: SecurityException) {
-                            Log.e(BLE_TAG, "SecurityException notifying handshake to ${radioPeer.id}", error)
-                        }
+                    val shouldReply = !context.handshakeSent
+                    if (shouldReply) {
+                        sendServerChunks(context, device, ctrl, localHandshakeBytes)
+                        context.handshakeSent = true
                     }
                 }
             }
@@ -611,8 +636,196 @@ class BleGattTransport(
         ),
         var gatt: BluetoothGatt? = null,
         var serverDevice: BluetoothDevice? = null,
-        var radioPeer: RadioPeer? = null
+        var radioPeer: RadioPeer? = null,
+        var negotiatedMtu: Int = DEFAULT_BLE_MTU,
+        var setupState: BleSetupState = BleSetupState.IDLE,
+        var handshakeSent: Boolean = false,
+        var pendingWrite: CompletableDeferred<Boolean>? = null,
+        var pendingWriteUuid: UUID? = null,
+        val incomingBuffer: ByteArrayOutputStream = ByteArrayOutputStream(),
+        var expectedInboundBytes: Int = 0,
+        val outgoingMutex: Mutex = Mutex()
     )
+
+    private enum class BleSetupState {
+        IDLE,
+        ENABLING_CONTROL,
+        ENABLING_DATA,
+        READY
+    }
+
+    private fun enableNotifications(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        address: String
+    ): Boolean {
+        if (!hasConnectPermission()) return false
+        return try {
+            gatt.setCharacteristicNotification(characteristic, true)
+            val descriptor = characteristic.getDescriptor(CCC_DESCRIPTOR_UUID)
+            if (descriptor == null) {
+                Log.w(BLE_TAG, "Missing CCC descriptor for ${characteristic.uuid} on $address")
+                false
+            } else {
+                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt.writeDescriptor(descriptor)
+            }
+        } catch (error: SecurityException) {
+            Log.e(BLE_TAG, "SecurityException enabling notifications for $address", error)
+            false
+        }
+    }
+
+    private suspend fun sendHandshakeToClient(context: BlePeerContext, gatt: BluetoothGatt) {
+        if (!hasConnectPermission() || context.handshakeSent) return
+        val ctrl = gatt.getService(SERVICE_UUID)?.getCharacteristic(CTRL_CHAR_UUID) ?: return
+        val sent = sendClientChunks(context, gatt, ctrl, localHandshakeBytes)
+        if (sent) {
+            context.handshakeSent = true
+        }
+    }
+
+    private suspend fun sendClientChunks(
+        context: BlePeerContext,
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        payload: ByteArray
+    ): Boolean = context.outgoingMutex.withLock {
+        val chunks = fragmentForBle(context, payload)
+        for (chunk in chunks) {
+            val success = writeClientChunk(context, gatt, characteristic, chunk)
+            if (!success) {
+                Log.w(BLE_TAG, "Client BLE write failed for ${context.deviceAddress}")
+                return@withLock false
+            }
+        }
+        true
+    }
+
+    private suspend fun writeClientChunk(
+        context: BlePeerContext,
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        chunk: ByteArray
+    ): Boolean {
+        if (!hasConnectPermission()) return false
+        val result = CompletableDeferred<Boolean>()
+        context.pendingWrite = result
+        context.pendingWriteUuid = characteristic.uuid
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        return try {
+            characteristic.value = chunk
+            val started = gatt.writeCharacteristic(characteristic)
+            if (!started) {
+                context.pendingWrite = null
+                context.pendingWriteUuid = null
+                false
+            } else {
+                result.await()
+            }
+        } catch (error: SecurityException) {
+            context.pendingWrite = null
+            context.pendingWriteUuid = null
+            Log.e(BLE_TAG, "SecurityException while writing BLE chunk to ${context.deviceAddress}", error)
+            false
+        }
+    }
+
+    private suspend fun sendServerChunks(
+        context: BlePeerContext,
+        device: BluetoothDevice,
+        characteristic: BluetoothGattCharacteristic,
+        payload: ByteArray
+    ): Boolean = context.outgoingMutex.withLock {
+        if (!hasConnectPermission()) return@withLock false
+        val chunks = fragmentForBle(context, payload)
+        for (chunk in chunks) {
+            try {
+                characteristic.value = chunk
+                val success = gattServer?.notifyCharacteristicChanged(device, characteristic, false) ?: false
+                if (!success) {
+                    Log.w(BLE_TAG, "Server BLE notify failed for ${context.deviceAddress}")
+                    return@withLock false
+                }
+            } catch (error: SecurityException) {
+                Log.e(BLE_TAG, "SecurityException while notifying BLE chunk to ${context.deviceAddress}", error)
+                return@withLock false
+            }
+            delay(15)
+        }
+        true
+    }
+
+    private fun fragmentForBle(context: BlePeerContext, payload: ByteArray): List<ByteArray> {
+        val maxValueBytes = (context.negotiatedMtu - 3).coerceAtLeast(20)
+        val singlePayloadBytes = (maxValueBytes - 1).coerceAtLeast(1)
+        if (payload.size <= singlePayloadBytes) {
+            return listOf(byteArrayOf(BLE_FRAME_SINGLE) + payload)
+        }
+
+        require(payload.size <= 0xFFFF) { "BLE frame too large: ${payload.size}" }
+        val firstChunkPayloadBytes = (maxValueBytes - 3).coerceAtLeast(1)
+        val continuationPayloadBytes = (maxValueBytes - 1).coerceAtLeast(1)
+        val chunks = mutableListOf<ByteArray>()
+        var offset = 0
+
+        val firstSliceEnd = minOf(payload.size, firstChunkPayloadBytes)
+        chunks += byteArrayOf(
+            BLE_FRAME_START,
+            ((payload.size shr 8) and 0xFF).toByte(),
+            (payload.size and 0xFF).toByte()
+        ) + payload.copyOfRange(offset, firstSliceEnd)
+        offset = firstSliceEnd
+
+        while (offset < payload.size) {
+            val nextEnd = minOf(payload.size, offset + continuationPayloadBytes)
+            chunks += byteArrayOf(BLE_FRAME_CONTINUATION) + payload.copyOfRange(offset, nextEnd)
+            offset = nextEnd
+        }
+
+        return chunks
+    }
+
+    private fun decodeBleFrame(address: String, chunk: ByteArray): ByteArray? {
+        if (chunk.isEmpty()) return null
+        val context = deviceContexts.getOrPut(address) { BlePeerContext(deviceAddress = address) }
+        return when (chunk[0]) {
+            BLE_FRAME_SINGLE -> chunk.copyOfRange(1, chunk.size)
+            BLE_FRAME_START -> {
+                if (chunk.size < 3) {
+                    Log.w(BLE_TAG, "Discarding short BLE start frame from $address")
+                    context.incomingBuffer.reset()
+                    context.expectedInboundBytes = 0
+                    null
+                } else {
+                    context.expectedInboundBytes =
+                        ((chunk[1].toInt() and 0xFF) shl 8) or (chunk[2].toInt() and 0xFF)
+                    context.incomingBuffer.reset()
+                    context.incomingBuffer.write(chunk, 3, chunk.size - 3)
+                    maybeCompleteInboundFrame(context)
+                }
+            }
+            BLE_FRAME_CONTINUATION -> {
+                if (context.expectedInboundBytes <= 0) {
+                    Log.w(BLE_TAG, "Discarding BLE continuation without start from $address")
+                    null
+                } else {
+                    context.incomingBuffer.write(chunk, 1, chunk.size - 1)
+                    maybeCompleteInboundFrame(context)
+                }
+            }
+            else -> chunk
+        }
+    }
+
+    private fun maybeCompleteInboundFrame(context: BlePeerContext): ByteArray? {
+        if (context.expectedInboundBytes <= 0) return null
+        if (context.incomingBuffer.size() < context.expectedInboundBytes) return null
+        val bytes = context.incomingBuffer.toByteArray().copyOf(context.expectedInboundBytes)
+        context.incomingBuffer.reset()
+        context.expectedInboundBytes = 0
+        return bytes
+    }
 
     private fun hasConnectPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||

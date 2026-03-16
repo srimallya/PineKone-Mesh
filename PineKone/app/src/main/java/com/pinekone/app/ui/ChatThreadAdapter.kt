@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -64,6 +65,7 @@ class ChatThreadAdapter(
         fun bind(contact: Contact) {
             boundContact = contact
             name.text = contact.displayName
+            name.setTextColor(ContextCompat.getColor(itemView.context, R.color.md_theme_on_surface))
             val snippetText = buildString {
                 contact.lastMessageSnippet?.let { append(it) }
                 contact.lastMessageTimestamp?.let {
@@ -72,6 +74,7 @@ class ChatThreadAdapter(
                 }
             }
             snippet.text = if (snippetText.isNotEmpty()) snippetText else "No messages yet"
+            snippet.setTextColor(ContextCompat.getColor(itemView.context, R.color.md_theme_on_surface_variant))
         }
 
         companion object {
