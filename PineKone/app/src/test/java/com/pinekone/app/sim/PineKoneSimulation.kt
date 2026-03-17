@@ -133,6 +133,67 @@ data class SimStressReport(
         }
 }
 
+data class SimMonteCarloRun(
+    val seed: Int,
+    val nodeCount: Int,
+    val report: SimStressReport
+)
+
+data class SimMonteCarloReport(
+    val totalRuns: Int,
+    val totalMessages: Int,
+    val averageDeliveryRate: Double,
+    val averageCustodyRate: Double,
+    val averageTrustedPairSuccessRate: Double,
+    val p10DeliveryRate: Double,
+    val p50DeliveryRate: Double,
+    val p90DeliveryRate: Double,
+    val minDeliveryRate: Double,
+    val maxDeliveryRate: Double,
+    val worstRuns: List<SimMonteCarloRun>,
+    val aggregateFailureReasons: Map<DecisionReasonCode, Int>
+) {
+    fun render(): String =
+        buildString {
+            append("runs=")
+            append(totalRuns)
+            append(" messages=")
+            append(totalMessages)
+            append(" avgDelivery=")
+            append("%.2f".format(averageDeliveryRate))
+            append(" avgCustody=")
+            append("%.2f".format(averageCustodyRate))
+            append(" avgTrustedPair=")
+            append("%.2f".format(averageTrustedPairSuccessRate))
+            append(" p10=")
+            append("%.2f".format(p10DeliveryRate))
+            append(" p50=")
+            append("%.2f".format(p50DeliveryRate))
+            append(" p90=")
+            append("%.2f".format(p90DeliveryRate))
+            append(" min=")
+            append("%.2f".format(minDeliveryRate))
+            append(" max=")
+            append("%.2f".format(maxDeliveryRate))
+            if (aggregateFailureReasons.isNotEmpty()) {
+                append(" failureReasons=")
+                append(
+                    aggregateFailureReasons.entries
+                        .sortedByDescending { it.value }
+                        .joinToString(",") { "${it.key.name}:${it.value}" }
+                )
+            }
+            if (worstRuns.isNotEmpty()) {
+                append(" worst=")
+                append(
+                    worstRuns.joinToString(";") {
+                        "seed=${it.seed}/nodes=${it.nodeCount}/delivery=${"%.2f".format(it.report.deliveryRate)}/custody=${"%.2f".format(it.report.custodyRate)}/failed=${it.report.failedMessages}"
+                    }
+                )
+            }
+        }
+}
+
 private data class SimPathScore(
     val peerId: String,
     val distance: Int,
@@ -144,7 +205,9 @@ private data class SimPathScore(
 internal data class MessageCopy(
     val nodeId: String,
     var ttlRemaining: Int,
-    var attempts: Int = 0
+    var attempts: Int = 0,
+    var unresolvedStreak: Int = 0,
+    var nextAttemptTick: Int = 0
 )
 
 internal data class SimMessage(
@@ -344,6 +407,7 @@ class PineKoneSimulation(
 
     private fun processCopy(message: SimMessage, copy: MessageCopy) {
         val node = nodes[copy.nodeId] ?: return
+        if (tick < copy.nextAttemptTick) return
         if (copy.nodeId == message.targetId) {
             message.delivered = true
             message.deliveryTick = tick
@@ -376,33 +440,38 @@ class PineKoneSimulation(
             status = DeviceStatus(node.batteryPct, node.queueSlack),
             storeCarryRequested = message.ops.storeCarry
         )
-        val scoredPeer = bestPeer(copy.nodeId, message)
+        val scoredPeers = rankedPeers(copy.nodeId, message)
+        val scoredPeer = scoredPeers.firstOrNull()
+        val hasAnyActiveLink = links.any { it.from == copy.nodeId && it.active }
         when {
-            decision is ForwardDecision.Allowed && scoredPeer != null -> forward(message, copy, node, scoredPeer)
-            decision is ForwardDecision.Allowed && message.ops.storeCarry -> storeCarry(message, copy, node, null)
-            decision == ForwardDecision.StoreCarry -> storeCarry(message, copy, node, scoredPeer)
+            decision is ForwardDecision.Allowed && scoredPeer != null -> {
+                val fanoutPeers = scoredPeers
+                    .take(message.policy.maxFanout.coerceAtLeast(1))
+                    .let { candidates ->
+                        val bestScore = candidates.firstOrNull()?.score ?: Double.NEGATIVE_INFINITY
+                        candidates.filterIndexed { index, candidate ->
+                            index == 0 ||
+                                candidate.peerId == message.targetId ||
+                                bestScore < 3.0 ||
+                                (bestScore - candidate.score) <= 0.45
+                        }
+                    }
+                forward(message, copy, node, fanoutPeers)
+            }
+            decision is ForwardDecision.Allowed && message.ops.storeCarry -> storeCarry(message, copy, node, null, hasAnyActiveLink)
+            decision == ForwardDecision.StoreCarry -> storeCarry(message, copy, node, scoredPeer, hasAnyActiveLink)
             decision == ForwardDecision.DeclinedBattery -> failCopy(message, copy, node, DecisionReasonCode.BATTERY_BELOW_FLOOR, "battery below floor")
             else -> failCopy(message, copy, node, DecisionReasonCode.NO_VIABLE_PATH, "no viable path")
         }
     }
 
-    private fun forward(message: SimMessage, copy: MessageCopy, node: SimNode, score: SimPathScore) {
+    private fun forward(message: SimMessage, copy: MessageCopy, node: SimNode, scores: List<SimPathScore>) {
+        if (scores.isEmpty()) return
+        val forwardedTtl = copy.ttlRemaining - 1
         copy.attempts += 1
-        recordAttempt(node.id, score.peerId, message.contextKey)
-        events += SimEvent(
-            tick = tick,
-            type = SimEventType.DECISION,
-            nodeId = node.id,
-            msgId = message.id,
-            decision = RoutingDecision.FORWARD_NOW,
-            reason = DecisionReasonCode.CONDENSE_PROGRESS,
-            peerId = score.peerId,
-            detail = score.explanation
-        )
-        recordMutation(node.id, message.id, MutationKind.EDGE_REWEIGHT, score.peerId, message.contextKey, DecisionReasonCode.CONDENSE_PROGRESS, "forwarded")
-        recordMutation(node.id, message.id, MutationKind.ALIAS_ROTATE, score.peerId, message.contextKey, DecisionReasonCode.CONDENSE_PROGRESS, "alias rotated")
-
-        if (shouldUseShadowCustody(node, score)) {
+        copy.unresolvedStreak = 0
+        copy.nextAttemptTick = tick + 1
+        if (scores.any { shouldUseShadowCustody(node, it) }) {
             message.custodyTick = tick
             events += SimEvent(
                 tick = tick,
@@ -415,50 +484,82 @@ class PineKoneSimulation(
             )
         }
 
-        message.copies.removeIf { it.nodeId == copy.nodeId }
-        val nextCopy = message.copies.firstOrNull { it.nodeId == score.peerId }
-        if (nextCopy == null) {
-            message.copies += MessageCopy(nodeId = score.peerId, ttlRemaining = copy.ttlRemaining - 1)
+        val retainFallbackCopy = scores.any { shouldRetainFallbackCopy(node, copy, it) }
+        if (retainFallbackCopy) {
+            copy.ttlRemaining -= 1
+            copy.unresolvedStreak = 0
+            copy.nextAttemptTick = tick + 1
         } else {
-            nextCopy.ttlRemaining = maxOf(nextCopy.ttlRemaining, copy.ttlRemaining - 1)
+            message.copies.removeIf { it.nodeId == copy.nodeId }
         }
-
-        if (score.peerId == message.targetId) {
-            message.delivered = true
-            message.deliveryTick = tick
-            recordOutcome(node.id, score.peerId, message.contextKey, success = true, reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED)
-            recordMutation(node.id, message.id, MutationKind.DELIVERY_PATH_CONFIRMED, score.peerId, message.contextKey, DecisionReasonCode.DELIVERY_ACK_RECEIVED, "delivery confirmed")
+        scores.forEach { score ->
+            recordAttempt(node.id, score.peerId, message.contextKey)
             events += SimEvent(
                 tick = tick,
-                type = SimEventType.DELIVERY,
-                nodeId = score.peerId,
+                type = SimEventType.DECISION,
+                nodeId = node.id,
                 msgId = message.id,
-                decision = RoutingDecision.DELIVERY_CONFIRMED,
-                reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED,
-                peerId = node.id,
-                detail = "delivered over ${score.explanation}"
+                decision = RoutingDecision.FORWARD_NOW,
+                reason = DecisionReasonCode.CONDENSE_PROGRESS,
+                peerId = score.peerId,
+                detail = score.explanation
             )
-        } else {
-            recordOutcome(node.id, score.peerId, message.contextKey, success = true, reason = DecisionReasonCode.CONDENSE_PROGRESS)
+            recordMutation(node.id, message.id, MutationKind.EDGE_REWEIGHT, score.peerId, message.contextKey, DecisionReasonCode.CONDENSE_PROGRESS, "forwarded")
+            recordMutation(node.id, message.id, MutationKind.ALIAS_ROTATE, score.peerId, message.contextKey, DecisionReasonCode.CONDENSE_PROGRESS, "alias rotated")
+
+            val nextCopy = message.copies.firstOrNull { it.nodeId == score.peerId }
+            if (nextCopy == null) {
+                message.copies += MessageCopy(nodeId = score.peerId, ttlRemaining = forwardedTtl)
+            } else {
+                nextCopy.ttlRemaining = maxOf(nextCopy.ttlRemaining, forwardedTtl)
+            }
+
+            if (score.peerId == message.targetId && !message.delivered) {
+                message.delivered = true
+                message.deliveryTick = tick
+                recordOutcome(node.id, score.peerId, message.contextKey, success = true, reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED)
+                recordMutation(node.id, message.id, MutationKind.DELIVERY_PATH_CONFIRMED, score.peerId, message.contextKey, DecisionReasonCode.DELIVERY_ACK_RECEIVED, "delivery confirmed")
+                events += SimEvent(
+                    tick = tick,
+                    type = SimEventType.DELIVERY,
+                    nodeId = score.peerId,
+                    msgId = message.id,
+                    decision = RoutingDecision.DELIVERY_CONFIRMED,
+                    reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED,
+                    peerId = node.id,
+                    detail = "delivered over ${score.explanation}"
+                )
+            } else {
+                recordOutcome(node.id, score.peerId, message.contextKey, success = true, reason = DecisionReasonCode.CONDENSE_PROGRESS)
+            }
         }
     }
 
-    private fun storeCarry(message: SimMessage, copy: MessageCopy, node: SimNode, score: SimPathScore?) {
-        copy.attempts += 1
+    private fun storeCarry(message: SimMessage, copy: MessageCopy, node: SimNode, score: SimPathScore?, hasAnyActiveLink: Boolean) {
+        val burnsRetryBudget = score != null || hasAnyActiveLink
+        if (burnsRetryBudget) {
+            copy.attempts += 1
+        }
+        copy.unresolvedStreak += 1
+        copy.nextAttemptTick = tick + adaptiveBackoffTicks(copy, score)
         events += SimEvent(
             tick = tick,
             type = SimEventType.DECISION,
             nodeId = node.id,
             msgId = message.id,
             decision = RoutingDecision.STORE_CARRY,
-            reason = if (score == null) DecisionReasonCode.NO_VIABLE_PATH else DecisionReasonCode.RELATIONAL_UNRESOLVED,
+            reason = when {
+                score == null && hasAnyActiveLink -> DecisionReasonCode.RELATIONAL_UNRESOLVED
+                score == null -> DecisionReasonCode.NO_VIABLE_PATH
+                else -> DecisionReasonCode.RELATIONAL_UNRESOLVED
+            },
             peerId = score?.peerId,
             detail = score?.explanation ?: "no governance-eligible route"
         )
         if (score != null) {
             recordMutation(node.id, message.id, MutationKind.HINT_TIER_SHIFT, score.peerId, message.contextKey, DecisionReasonCode.RELATIONAL_UNRESOLVED, "store-carry waiting")
         }
-        if (node.custodyEligible && node.webMailboxAvailable && message.custodyTick == null) {
+        if (shouldPromoteCustody(node, copy, score, hasAnyActiveLink) && message.custodyTick == null) {
             message.custodyTick = tick
             events += SimEvent(
                 tick = tick,
@@ -470,7 +571,7 @@ class PineKoneSimulation(
                 detail = "custody fallback accepted"
             )
         }
-        if (copy.attempts > message.policy.retryLimit && message.custodyTick == null) {
+        if (copy.attempts > message.policy.retryLimit && message.custodyTick == null && copy.unresolvedStreak >= 2) {
             failCopy(message, copy, node, DecisionReasonCode.RETRY_LIMIT_EXCEEDED, "retry limit exceeded")
         }
     }
@@ -488,9 +589,9 @@ class PineKoneSimulation(
         message.copies.removeIf { it.nodeId == copy.nodeId }
     }
 
-    private fun bestPeer(nodeId: String, message: SimMessage): SimPathScore? {
+    private fun rankedPeers(nodeId: String, message: SimMessage): List<SimPathScore> {
         val availableLinks = links.filter { it.from == nodeId && it.active }
-        if (availableLinks.isEmpty()) return null
+        if (availableLinks.isEmpty()) return emptyList()
         return availableLinks
             .mapNotNull { link ->
                 val peer = nodes[link.to] ?: return@mapNotNull null
@@ -504,8 +605,16 @@ class PineKoneSimulation(
                 val learnedBias = learnedEdge?.edgeWeight ?: 0.0
                 val successBonus = ((learnedEdge?.successRate ?: 0.5) - 0.5) * 1.2
                 val custodyBonus = (learnedEdge?.custodyCount ?: 0).coerceAtMost(3) * 0.05
-                val score = distanceScore + qualityScore + transportBonus + directMatchBonus + learnedBias + successBonus + custodyBonus + profile.trustScore
-                if (!profile.eligible || score <= -1.0 || distance >= 5) {
+                val weakButViable = !profile.eligible &&
+                    !profile.isRevoked &&
+                    !profile.scopeQuarantined &&
+                    !profile.lineageSevered &&
+                    distance <= 4 &&
+                    (profile.communityMatch || profile.sharedLineage || (learnedEdge?.successRate ?: 0.0) >= 0.65) &&
+                    qualityScore >= 0.35
+                val score = distanceScore + qualityScore + transportBonus + directMatchBonus + learnedBias + successBonus + custodyBonus + profile.trustScore +
+                    if (weakButViable) 0.25 else 0.0
+                if ((!profile.eligible && !weakButViable) || score <= -1.0 || distance >= 5) {
                     null
                 } else {
                     SimPathScore(
@@ -517,13 +626,13 @@ class PineKoneSimulation(
                     )
                 }
             }
-            .maxByOrNull { it.score }
+            .sortedByDescending { it.score }
     }
 
     private fun routingPeerProfile(targetNodeId: String, candidateNodeId: String, contextKey: String?): RoutingPeerProfile {
         val relationDistance = relationDistance(targetNodeId, candidateNodeId)
         val candidateRevocations = revocations.filter { it.nodeId == candidateNodeId }
-        val isRevoked = candidateRevocations.isNotEmpty()
+        val isRevoked = candidateRevocations.any { !it.reason.startsWith("scope:") }
         val candidateAliases = aliasBindings.filter { it.nodeId == candidateNodeId || it.contactId == candidateNodeId }
         val now = now()
         val hasRelayRole = roleAttestations.any {
@@ -589,7 +698,7 @@ class PineKoneSimulation(
 
     private fun relationDistance(targetNodeId: String, candidateNodeId: String): Int {
         if (targetNodeId == candidateNodeId) return 0
-        if (revocations.any { it.nodeId == candidateNodeId }) return 6
+        if (revocations.any { it.nodeId == candidateNodeId && !it.reason.startsWith("scope:") }) return 6
 
         val candidateAliases = aliasBindings.filter { it.nodeId == candidateNodeId || it.contactId == candidateNodeId }
         if (candidateAliases.any { it.contactId == targetNodeId || it.nodeId == targetNodeId }) {
@@ -614,7 +723,32 @@ class PineKoneSimulation(
     }
 
     private fun shouldUseShadowCustody(node: SimNode, score: SimPathScore): Boolean =
-        node.webMailboxAvailable && (score.score < 3.1 || score.distance >= 3)
+        node.webMailboxAvailable &&
+            (!score.profile.eligible || score.score < 3.4 || score.distance >= 3)
+
+    private fun shouldRetainFallbackCopy(node: SimNode, copy: MessageCopy, score: SimPathScore): Boolean =
+        copy.ttlRemaining > 2 &&
+            copy.attempts <= 2 &&
+            (node.webMailboxAvailable || !score.profile.eligible || score.score < 3.2 || score.distance >= 2)
+
+    private fun shouldPromoteCustody(node: SimNode, copy: MessageCopy, score: SimPathScore?, hasAnyActiveLink: Boolean): Boolean {
+        if (!node.custodyEligible || !node.webMailboxAvailable) return false
+        if (!hasAnyActiveLink) return true
+        if (copy.unresolvedStreak >= 1 && score == null) return true
+        if (copy.unresolvedStreak >= 2) return true
+        return score == null || score.score < 3.15 || score.distance >= 3
+    }
+
+    private fun adaptiveBackoffTicks(copy: MessageCopy, score: SimPathScore?): Int {
+        val base = when {
+            score == null -> 1
+            score.distance >= 3 -> 1
+            else -> 1
+        }
+        val retryPenalty = (copy.attempts / 3).coerceAtMost(1)
+        val unresolvedPenalty = (copy.unresolvedStreak / 3).coerceAtMost(1)
+        return (base + retryPenalty + unresolvedPenalty).coerceAtMost(3)
+    }
 
     private fun recordAttempt(ownerNodeId: String, peerId: String, contextKey: String) {
         val existing = routeEdges.getOrPut(ownerNodeId) { mutableMapOf() }[routeKey(peerId, contextKey)]
@@ -959,5 +1093,54 @@ class PineKoneStressScenario(
             totalEvents = results.sumOf { it.eventCount }
         )
         return report to results
+    }
+}
+
+class PineKoneMonteCarloScenario(
+    private val seeds: IntRange,
+    private val nodeCountForSeed: (Int) -> Int = { seed -> 10 + (seed % 16) },
+    private val rounds: Int = 18,
+    private val maxTicksPerMessage: Int = 10
+) {
+    fun run(): SimMonteCarloReport {
+        val runs = seeds.map { seed ->
+            val nodeCount = nodeCountForSeed(seed).coerceIn(10, 25)
+            val (report, _) = PineKoneStressScenario(seed = seed, nodeCount = nodeCount)
+                .runStress(rounds = rounds, maxTicksPerMessage = maxTicksPerMessage)
+            SimMonteCarloRun(
+                seed = seed,
+                nodeCount = nodeCount,
+                report = report
+            )
+        }
+        val deliveryRates = runs.map { it.report.deliveryRate }.sorted()
+        val custodyRates = runs.map { it.report.custodyRate }
+        val trustedPairRates = runs.map { it.report.trustedPairSuccessRate }
+        val totalMessages = runs.sumOf { it.report.totalMessages }
+        val aggregateFailureReasons = runs
+            .flatMap { it.report.failureReasons.entries }
+            .groupingBy { it.key }
+            .fold(0) { acc, entry -> acc + entry.value }
+
+        return SimMonteCarloReport(
+            totalRuns = runs.size,
+            totalMessages = totalMessages,
+            averageDeliveryRate = deliveryRates.average(),
+            averageCustodyRate = custodyRates.average(),
+            averageTrustedPairSuccessRate = trustedPairRates.average(),
+            p10DeliveryRate = percentile(deliveryRates, 0.10),
+            p50DeliveryRate = percentile(deliveryRates, 0.50),
+            p90DeliveryRate = percentile(deliveryRates, 0.90),
+            minDeliveryRate = deliveryRates.firstOrNull() ?: 0.0,
+            maxDeliveryRate = deliveryRates.lastOrNull() ?: 0.0,
+            worstRuns = runs.sortedBy { it.report.deliveryRate }.take(5),
+            aggregateFailureReasons = aggregateFailureReasons
+        )
+    }
+
+    private fun percentile(sortedValues: List<Double>, percentile: Double): Double {
+        if (sortedValues.isEmpty()) return 0.0
+        val index = ((sortedValues.size - 1) * percentile).toInt().coerceIn(0, sortedValues.lastIndex)
+        return sortedValues[index]
     }
 }
