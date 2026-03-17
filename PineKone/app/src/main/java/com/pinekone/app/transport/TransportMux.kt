@@ -159,31 +159,22 @@ class TransportMux(
 
     private suspend fun sendBytes(bytes: ByteArray, peerId: String?) {
         if (peerId == null) {
-            val entries = peerMutex.withLock { peerEntries.values.map { it.transport to it.radioPeer } }
-            entries.forEach { (transport, peer) ->
-                runCatching { transport.send(peer, bytes) }
-                    .onFailure { Log.e(TAG, "Failed to broadcast frame via ${transport.kind}", it) }
-                    .onSuccess { success ->
-                        if (!success) {
-                            Log.w(TAG, "Transport ${transport.kind} rejected broadcast to ${peer.id}")
-                        }
-                    }
+            val candidateGroups = peerMutex.withLock {
+                peerEntries
+                    .toList()
+                    .groupBy { (_, entry) -> logicalPeerKey(entry.pkPeer) }
+                    .values
+                    .map { group -> prioritize(group.map { it.first }) }
+            }
+            candidateGroups.forEach { keys ->
+                sendViaCandidateKeys(bytes, keys)
             }
             return
         }
 
-        val entry = peerMutex.withLock {
-            val key = peerRoutes[peerId] ?: return
-            peerEntries[key]
-        } ?: return
-
-        runCatching { entry.transport.send(entry.radioPeer, bytes) }
-            .onFailure { Log.e(TAG, "Failed to send frame to $peerId via ${entry.transport.kind}", it) }
-            .onSuccess { success ->
-                if (!success) {
-                    Log.w(TAG, "Transport ${entry.transport.kind} rejected send to $peerId")
-                }
-            }
+        val candidateKeys = peerMutex.withLock { candidateRouteKeysLocked(peerId) }
+        if (candidateKeys.isEmpty()) return
+        sendViaCandidateKeys(bytes, candidateKeys)
     }
 
     private suspend fun handlePeerUpsert(transport: Transport, peer: RadioPeer) {
@@ -301,7 +292,9 @@ class TransportMux(
 
     private fun publishPeersLocked() {
         val peers = peerEntries.values
-            .map { it.pkPeer }
+            .groupBy { logicalPeerKey(it.pkPeer) }
+            .values
+            .map(::mergePeerEntries)
             .sortedBy { it.displayName.lowercase() }
         peersState.value = peers
     }
@@ -340,6 +333,57 @@ class TransportMux(
             RadioKind.NEARBY -> 4
             RadioKind.WEB -> 5
         }
+
+    private suspend fun sendViaCandidateKeys(bytes: ByteArray, candidateKeys: List<PeerKey>) {
+        for (key in candidateKeys) {
+            val entry = peerMutex.withLock { peerEntries[key] } ?: continue
+            val success = runCatching { entry.transport.send(entry.radioPeer, bytes) }
+                .onFailure { Log.e(TAG, "Failed to send frame to ${entry.radioPeer.id} via ${entry.transport.kind}", it) }
+                .getOrDefault(false)
+            if (success) {
+                return
+            }
+            Log.w(TAG, "Transport ${entry.transport.kind} rejected send to ${entry.radioPeer.id}; trying next route")
+        }
+    }
+
+    private fun candidateRouteKeysLocked(peerId: String): List<PeerKey> {
+        val exactMatches = peerEntries
+            .filter { (_, entry) -> entry.pkPeer.id == peerId }
+            .keys
+            .toList()
+        return when {
+            exactMatches.isNotEmpty() -> prioritize(exactMatches)
+            peerRoutes[peerId] != null -> listOf(peerRoutes.getValue(peerId))
+            else -> emptyList()
+        }
+    }
+
+    private fun prioritize(keys: List<PeerKey>): List<PeerKey> =
+        keys.sortedBy { priorityFor(it.kind) }
+
+    private fun logicalPeerKey(peer: PkPeer): String =
+        peer.fingerprintHex?.takeIf { it.isNotBlank() } ?: peer.id
+
+    private fun mergePeerEntries(entries: List<PeerEntry>): PkPeer {
+        val preferred = entries.minWithOrNull(
+            compareBy<PeerEntry> { priorityFor(it.radioPeer.kind) }
+                .thenByDescending { it.pkPeer.quality }
+                .thenByDescending { it.pkPeer.lastSeen }
+        ) ?: entries.first()
+        val newestLastSeen = entries.maxOf { it.pkPeer.lastSeen }
+        val strongestQuality = entries.maxOf { it.pkPeer.quality }
+        val battery = entries.mapNotNull { it.pkPeer.batteryPct }.maxOrNull()
+        val publicKey = preferred.pkPeer.publicKey ?: entries.firstNotNullOfOrNull { it.pkPeer.publicKey }
+        val fingerprint = preferred.pkPeer.fingerprintHex ?: entries.firstNotNullOfOrNull { it.pkPeer.fingerprintHex }
+        return preferred.pkPeer.copy(
+            lastSeen = newestLastSeen,
+            quality = strongestQuality,
+            batteryPct = battery,
+            publicKey = publicKey,
+            fingerprintHex = fingerprint
+        )
+    }
 
     companion object {
         private const val DEFAULT_QUALITY = 0.5
