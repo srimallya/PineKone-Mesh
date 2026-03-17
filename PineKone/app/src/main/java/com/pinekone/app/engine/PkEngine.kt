@@ -6,7 +6,9 @@ import com.pinekone.app.data.ContactRepository
 import com.pinekone.app.data.GovernanceRepository
 import com.pinekone.app.data.MessageRepository
 import com.pinekone.app.data.PublicChatRepository
+import com.pinekone.app.data.ProtocolStateRepository
 import com.pinekone.app.data.RoutingTelemetryRepository
+import com.pinekone.app.data.db.DecisionReceiptEntity
 import com.pinekone.app.data.model.DecisionReasonCode
 import com.pinekone.app.data.model.MessageContentType
 import com.pinekone.app.data.model.MessageDirection
@@ -110,6 +112,7 @@ class PkEngine(
     private val messageRepository: MessageRepository,
     private val publicChatRepository: PublicChatRepository,
     private val routingTelemetryRepository: RoutingTelemetryRepository,
+    private val protocolStateRepository: ProtocolStateRepository,
     private val governanceRepository: GovernanceRepository,
     private val attachmentRepository: AttachmentRepository,
     private val pathScorer: RelationalPathScorer,
@@ -317,12 +320,30 @@ class PkEngine(
                     peerId = peerId,
                     detail = "fanout=${decision.fanout}"
                 )
+                peerId?.let {
+                    routingTelemetryRepository.recordRouteMutationImpact(
+                        peerId = it,
+                        contextKey = envelope.aliasCtx,
+                        mutationKind = MutationKind.EDGE_REWEIGHT,
+                        transport = MessageTransport.MESH.name,
+                        reasonCode = DecisionReasonCode.CONDENSE_PROGRESS
+                    )
+                }
                 recordMutation(
                     msgIdHex = msgIdHex,
                     kind = MutationKind.ALIAS_ROTATE,
                     peerId = peerId,
                     detail = "post-hop alias churn"
                 )
+                peerId?.let {
+                    routingTelemetryRepository.recordRouteMutationImpact(
+                        peerId = it,
+                        contextKey = envelope.aliasCtx,
+                        mutationKind = MutationKind.ALIAS_ROTATE,
+                        transport = MessageTransport.MESH.name,
+                        reasonCode = DecisionReasonCode.CONDENSE_PROGRESS
+                    )
+                }
             }
             ForwardDecision.StoreCarry -> {
                 recordMutation(
@@ -331,6 +352,15 @@ class PkEngine(
                     peerId = peerId,
                     detail = "queued for store-carry"
                 )
+                peerId?.let {
+                    routingTelemetryRepository.recordRouteMutationImpact(
+                        peerId = it,
+                        contextKey = envelope.aliasCtx,
+                        mutationKind = MutationKind.HINT_TIER_SHIFT,
+                        transport = MessageTransport.MESH.name,
+                        reasonCode = DecisionReasonCode.RELATIONAL_UNRESOLVED
+                    )
+                }
             }
             ForwardDecision.DeclinedBattery -> {
                 // fallback to store-carry or web if available
@@ -427,7 +457,8 @@ class PkEngine(
             is AckFrame -> {
                 val msgIdHex = frame.msgId.toHexString()
                 scope.launch {
-                    val contactId = peer?.id ?: pendingAcks[msgIdHex]?.contactId
+                    val pending = pendingAcks[msgIdHex]
+                    val contactId = pending?.contactId ?: peer?.id
                     contactId?.let {
                         messageRepository.markStatus(it, msgIdHex, MessageStatus.DELIVERED)
                         recordDecision(
@@ -440,6 +471,16 @@ class PkEngine(
                             detail = "ack highest_seq=${frame.highestContiguousSeq}"
                         )
                     }
+                    pending?.let {
+                        routingTelemetryRepository.recordRouteOutcome(
+                            peerId = it.peerId,
+                            contextKey = it.envelope.aliasCtx,
+                            success = true,
+                            latencyMs = System.currentTimeMillis() - it.startedAtMs,
+                            transport = MessageTransport.MESH.name,
+                            reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
+                        )
+                    }
                     messageStore.updateStatus(frame.msgId, EnvelopeStatus.DELIVERED)
                     recordMutation(
                         msgIdHex = msgIdHex,
@@ -447,6 +488,15 @@ class PkEngine(
                         peerId = peer?.id,
                         detail = "delivery ack received"
                     )
+                    pending?.let {
+                        routingTelemetryRepository.recordRouteMutationImpact(
+                            peerId = it.peerId,
+                            contextKey = it.envelope.aliasCtx,
+                            mutationKind = MutationKind.DELIVERY_PATH_CONFIRMED,
+                            transport = MessageTransport.MESH.name,
+                            reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
+                        )
+                    }
                     clearPendingAck(msgIdHex)
                 }
             }
@@ -587,8 +637,9 @@ class PkEngine(
             jThreshold = 5
         )
         val ops = PkOps(storeCarry = true, requireAck = true, e2eAckPath = true)
+        val contextKey = buildContextKey(hints)
 
-        val scoredPeer = pathScorer.selectBestPeer(contact, meshTransport.peers.value)
+        val scoredPeer = pathScorer.selectBestPeer(contact, meshTransport.peers.value, contextKey)
         val peer = scoredPeer?.peer
 
         val result = send(
@@ -603,6 +654,13 @@ class PkEngine(
         )
 
         val msgIdHex = result.envelope.msgId.toHexString()
+        if (peer != null) {
+            routingTelemetryRepository.recordRouteAttempt(
+                peerId = peer.id,
+                contextKey = contextKey,
+                transport = peer.transport.name
+            )
+        }
         val sentOverMesh = peer != null && result.decision is ForwardDecision.Allowed
         val canUseWebCustody = webTransport.isConfigured
         val transport = if (sentOverMesh) MessageTransport.MESH else if (canUseWebCustody) MessageTransport.WEB else MessageTransport.MESH
@@ -620,6 +678,11 @@ class PkEngine(
             DecisionReasonCode.NO_VIABLE_PATH
         } else {
             result.reasonCode
+        }
+        val governanceDetail = when {
+            scoredPeer == null && meshTransport.peers.value.isNotEmpty() -> "no governance-eligible route"
+            scoredPeer != null && !scoredPeer.eligible -> "peer failed governance policy"
+            else -> null
         }
 
         messageRepository.recordOutgoing(
@@ -645,7 +708,7 @@ class PkEngine(
             transport = transport.name,
             peerId = peer?.id,
             detail = if (!sentOverMesh && !canUseWebCustody) {
-                "no direct mesh peer • web delivery is not configured"
+                listOfNotNull("no direct mesh peer • web delivery is not configured", governanceDetail).joinToString(" • ")
             } else {
                 scoredPeer?.explanation ?: "initial send • ${contentType.name.lowercase()}"
             }
@@ -653,6 +716,13 @@ class PkEngine(
 
         if (transport == MessageTransport.MESH && result.decision is ForwardDecision.Allowed && peer != null) {
             scheduleAckWatch(contact.nodeId, msgIdHex, result.envelope, peer.id)
+        }
+        if (sentOverMesh && shouldUseShadowCustody(scoredPeer, result, canUseWebCustody)) {
+            uploadToCustody(
+                envelope = result.envelope,
+                contactId = contact.nodeId,
+                detail = "low-confidence mesh route • ${scoredPeer?.explanation ?: "no route explanation"}"
+            )
         }
         if (transport == MessageTransport.WEB) {
             uploadToCustody(
@@ -715,7 +785,8 @@ class PkEngine(
             jThreshold = 5
         )
         val ops = PkOps(storeCarry = true, requireAck = true, e2eAckPath = true)
-        val scoredPeer = pathScorer.selectBestPeer(contact, meshTransport.peers.value)
+        val contextKey = buildContextKey(hints)
+        val scoredPeer = pathScorer.selectBestPeer(contact, meshTransport.peers.value, contextKey)
         val peer = scoredPeer?.peer
 
         messageRepository.markStatus(contactId, msgIdHex, MessageStatus.PENDING)
@@ -735,6 +806,13 @@ class PkEngine(
             msgIdOverride = msgIdBytes
         )
 
+        if (peer != null) {
+            routingTelemetryRepository.recordRouteAttempt(
+                peerId = peer.id,
+                contextKey = contextKey,
+                transport = peer.transport.name
+            )
+        }
         val sentOverMesh = peer != null && result.decision is ForwardDecision.Allowed
         val canUseWebCustody = webTransport.isConfigured
         val status = when {
@@ -770,6 +848,13 @@ class PkEngine(
 
         if (status == MessageStatus.SENT && peer != null && result.decision is ForwardDecision.Allowed) {
             scheduleAckWatch(contactId, msgIdHex, result.envelope, peer.id)
+            if (shouldUseShadowCustody(scoredPeer, result, canUseWebCustody)) {
+                uploadToCustody(
+                    envelope = result.envelope,
+                    contactId = contactId,
+                    detail = "resend low-confidence mesh route • ${scoredPeer.explanation}"
+                )
+            }
         } else if (status == MessageStatus.PENDING && peer == null) {
             uploadToCustody(
                 envelope = result.envelope,
@@ -941,6 +1026,14 @@ class PkEngine(
         val pending = pendingAcks.remove(msgIdHex) ?: return
         messageStore.updateStatus(pending.envelope.msgId, EnvelopeStatus.FAILED)
         messageRepository.markStatus(pending.contactId, msgIdHex, MessageStatus.FAILED)
+        routingTelemetryRepository.recordRouteOutcome(
+            peerId = pending.peerId,
+            contextKey = pending.envelope.aliasCtx,
+            success = false,
+            latencyMs = System.currentTimeMillis() - pending.startedAtMs,
+            transport = MessageTransport.MESH.name,
+            reasonCode = DecisionReasonCode.RETRY_LIMIT_EXCEEDED
+        )
         recordDecision(
             msgIdHex = msgIdHex,
             contactId = pending.contactId,
@@ -1032,6 +1125,25 @@ class PkEngine(
             peerId = peerId,
             detail = detail
         )
+        val canonicalPayload = listOfNotNull(msgIdHex, contactId, decision.name, reason.name, transport, peerId, detail)
+            .joinToString("|")
+        protocolStateRepository.saveDecisionReceipt(
+            DecisionReceiptEntity(
+                receiptId = "dec:$msgIdHex:${System.currentTimeMillis()}",
+                msgId = msgIdHex,
+                contactId = contactId,
+                decision = decision.name,
+                reasonCode = reason.name,
+                transport = transport,
+                peerId = peerId,
+                aliasCtx = null,
+                aliasId = null,
+                lineageRoot = null,
+                canonicalPayload = canonicalPayload,
+                signature = canonicalPayload.encodeToByteArray().toHexString(),
+                createdAtEpochMillis = System.currentTimeMillis()
+            )
+        )
     }
 
     private suspend fun recordMutation(
@@ -1074,6 +1186,7 @@ class PkEngine(
         val contactId: String,
         val envelope: PkEnvelope,
         val peerId: String,
+        val startedAtMs: Long = System.currentTimeMillis(),
         var attempts: Int = 1,
         var job: Job? = null
     )
@@ -1083,6 +1196,25 @@ class PkEngine(
         val startedAtMs: Long,
         var job: Job? = null
     )
+
+    private fun buildContextKey(hints: PkHints): String =
+        buildString {
+            append("ctx:")
+            append(hints.communityId)
+            append(':')
+            append(hints.targetHash?.toHexString() ?: "public")
+        }
+
+    private fun shouldUseShadowCustody(
+        scoredPeer: PathScore?,
+        result: SendResult,
+        canUseWebCustody: Boolean
+    ): Boolean {
+        if (!canUseWebCustody) return false
+        if (result.decision !is ForwardDecision.Allowed) return false
+        val score = scoredPeer?.score ?: return true
+        return score < 3.1 || scoredPeer.distance >= 3
+    }
 
     @Serializable
     private data class PublicBroadcast(

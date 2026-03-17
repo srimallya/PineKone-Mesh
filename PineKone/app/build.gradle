@@ -5,6 +5,8 @@ plugins {
     id "org.jetbrains.kotlin.kapt"
 }
 
+def roomSchemaDir = file("$projectDir/schemas")
+
 android {
     namespace "com.pinekone.app"
     compileSdk 34
@@ -41,6 +43,16 @@ android {
 
     buildFeatures {
         viewBinding true
+    }
+
+    sourceSets {
+        androidTest.assets.srcDirs += roomSchemaDir
+    }
+}
+
+kapt {
+    arguments {
+        arg("room.schemaLocation", roomSchemaDir.path)
     }
 }
 

@@ -77,6 +77,9 @@ interface RoutingTelemetryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMutationEvent(event: MutationEventEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRouteContextEdge(edge: RouteContextEdgeEntity)
+
     @Query("SELECT * FROM decision_events WHERE msg_id = :msgId ORDER BY created_at ASC")
     fun observeDecisionEvents(msgId: String): Flow<List<DecisionEventEntity>>
 
@@ -88,6 +91,15 @@ interface RoutingTelemetryDao {
 
     @Query("SELECT * FROM mutation_events ORDER BY created_at DESC")
     fun observeAllMutationEvents(): Flow<List<MutationEventEntity>>
+
+    @Query("SELECT * FROM route_context_edges WHERE context_key = :contextKey")
+    suspend fun findRouteContextEdges(contextKey: String): List<RouteContextEdgeEntity>
+
+    @Query("SELECT * FROM route_context_edges WHERE peer_id = :peerId AND context_key = :contextKey LIMIT 1")
+    suspend fun getRouteContextEdge(peerId: String, contextKey: String): RouteContextEdgeEntity?
+
+    @Query("SELECT * FROM route_context_edges ORDER BY updated_at DESC")
+    fun observeRouteContextEdges(): Flow<List<RouteContextEdgeEntity>>
 }
 
 @Dao
@@ -121,6 +133,12 @@ interface GovernanceDao {
 
     @Query("SELECT * FROM invite_attestations WHERE inviter_node_id = :nodeId OR member_node_id = :nodeId")
     suspend fun findInviteAttestationsForNode(nodeId: String): List<InviteAttestationEntity>
+
+    @Query("SELECT * FROM role_attestations WHERE node_id = :nodeId")
+    suspend fun findRoleAttestationsForNode(nodeId: String): List<RoleAttestationEntity>
+
+    @Query("SELECT * FROM revocations WHERE node_id = :nodeId ORDER BY created_at DESC")
+    suspend fun findRevocationsForNode(nodeId: String): List<RevocationEntity>
 
     @Query("SELECT COUNT(*) FROM revocations WHERE node_id = :nodeId")
     suspend fun revocationCount(nodeId: String): Int

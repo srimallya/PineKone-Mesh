@@ -13,6 +13,7 @@ import androidx.room.TypeConverters
         PublicMessageEntity::class,
         DecisionEventEntity::class,
         MutationEventEntity::class,
+        RouteContextEdgeEntity::class,
         AliasBindingEntity::class,
         InviteAttestationEntity::class,
         RoleAttestationEntity::class,
@@ -25,7 +26,7 @@ import androidx.room.TypeConverters
         ReplayWindowEntity::class,
         ReplayNonceEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(PkTypeConverters::class)

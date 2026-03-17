@@ -5,6 +5,7 @@ import com.pinekone.app.data.ContactRepository
 import com.pinekone.app.data.GovernanceRepository
 import com.pinekone.app.data.MessageRepository
 import com.pinekone.app.data.PublicChatRepository
+import com.pinekone.app.data.ProtocolStateRepository
 import com.pinekone.app.data.RoutingTelemetryRepository
 import com.pinekone.app.data.SettingsRepository
 import com.pinekone.app.data.AttachmentRepository
@@ -42,6 +43,8 @@ class PineKoneApp : Application() {
         private set
     lateinit var routingTelemetryRepository: RoutingTelemetryRepository
         private set
+    lateinit var protocolStateRepository: ProtocolStateRepository
+        private set
     lateinit var governanceRepository: GovernanceRepository
         private set
     lateinit var settingsRepository: SettingsRepository
@@ -75,6 +78,7 @@ class PineKoneApp : Application() {
         messageRepository = MessageRepository(database.messageDao(), database.contactDao())
         publicChatRepository = PublicChatRepository(database.publicMessageDao())
         routingTelemetryRepository = RoutingTelemetryRepository(database.routingTelemetryDao())
+        protocolStateRepository = ProtocolStateRepository(database.protocolStateDao())
         governanceRepository = GovernanceRepository(database.governanceDao())
         settingsRepository = SettingsRepository(this, appScope)
         attachmentRepository = AttachmentRepository(this)
@@ -86,7 +90,10 @@ class PineKoneApp : Application() {
             )
         )
         val statusProvider = SystemDeviceStatusProvider(this)
-        val pathScorer = RelationalPathScorer(governanceRepository)
+        val pathScorer = RelationalPathScorer(
+            governanceRepository = governanceRepository,
+            routingTelemetryRepository = routingTelemetryRepository
+        )
 
         engine = PkEngine(
             scope = appScope,
@@ -98,6 +105,7 @@ class PineKoneApp : Application() {
             messageRepository = messageRepository,
             publicChatRepository = publicChatRepository,
             routingTelemetryRepository = routingTelemetryRepository,
+            protocolStateRepository = protocolStateRepository,
             governanceRepository = governanceRepository,
             attachmentRepository = attachmentRepository,
             pathScorer = pathScorer,

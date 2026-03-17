@@ -158,6 +158,41 @@ data class MutationEventEntity(
 )
 
 @Entity(
+    tableName = "route_context_edges",
+    indices = [
+        Index(value = ["peer_id", "context_key"], unique = true),
+        Index(value = ["context_key"]),
+        Index(value = ["updated_at"])
+    ]
+)
+data class RouteContextEdgeEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "peer_id")
+    val peerId: String,
+    @ColumnInfo(name = "context_key")
+    val contextKey: String,
+    @ColumnInfo(name = "success_count")
+    val successCount: Int = 0,
+    @ColumnInfo(name = "failure_count")
+    val failureCount: Int = 0,
+    @ColumnInfo(name = "custody_count")
+    val custodyCount: Int = 0,
+    @ColumnInfo(name = "attempt_count")
+    val attemptCount: Int = 0,
+    @ColumnInfo(name = "edge_weight")
+    val edgeWeight: Double = 0.0,
+    @ColumnInfo(name = "last_transport")
+    val lastTransport: String? = null,
+    @ColumnInfo(name = "last_reason_code")
+    val lastReasonCode: String? = null,
+    @ColumnInfo(name = "last_latency_ms")
+    val lastLatencyMs: Long? = null,
+    @ColumnInfo(name = "updated_at")
+    val updatedAtEpochMillis: Long
+)
+
+@Entity(
     tableName = "alias_bindings",
     indices = [
         Index(value = ["node_id"]),

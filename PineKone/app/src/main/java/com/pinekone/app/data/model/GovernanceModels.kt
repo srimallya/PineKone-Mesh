@@ -69,3 +69,18 @@ data class GovernanceSummary(
     val roleGrantCount: Int,
     val revocationCount: Int
 )
+
+data class RoutingPeerProfile(
+    val candidateNodeId: String,
+    val relationDistance: Int,
+    val contextualDistance: Int,
+    val isRevoked: Boolean,
+    val scopeQuarantined: Boolean,
+    val lineageSevered: Boolean,
+    val sharedLineage: Boolean,
+    val hasRelayRole: Boolean,
+    val exactScopeMatch: Boolean,
+    val communityMatch: Boolean,
+    val eligible: Boolean,
+    val trustScore: Double
+)

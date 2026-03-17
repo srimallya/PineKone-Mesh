@@ -12,6 +12,7 @@ import com.pinekone.app.data.model.GovernanceRole
 import com.pinekone.app.data.model.GovernanceSummary
 import com.pinekone.app.data.model.InviteAttestation
 import com.pinekone.app.data.model.Revocation
+import com.pinekone.app.data.model.RoutingPeerProfile
 import com.pinekone.app.data.model.RoleAttestation
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
@@ -196,6 +197,94 @@ class GovernanceRepository(
         }
         return 4
     }
+
+    suspend fun routingPeerProfile(
+        targetNodeId: String,
+        candidateNodeId: String,
+        contextKey: String? = null
+    ): RoutingPeerProfile {
+        val relationDistance = relationDistance(targetNodeId, candidateNodeId)
+        val candidateRevocations = dao.findRevocationsForNode(candidateNodeId)
+        val isRevoked = candidateRevocations.isNotEmpty()
+        val now = System.currentTimeMillis()
+        val candidateRoles = dao.findRoleAttestationsForNode(candidateNodeId)
+        val hasRelayRole = candidateRoles.any {
+            it.role == GovernanceRole.RELAY.name &&
+                (it.expiresAtEpochMillis == null || it.expiresAtEpochMillis >= now)
+        }
+        val targetInvites = dao.findInviteAttestationsForNode(targetNodeId)
+        val candidateInvites = dao.findInviteAttestationsForNode(candidateNodeId)
+        val targetRoots = targetInvites.flatMap { listOf(it.inviterNodeId, it.memberNodeId) }.toSet()
+        val candidateRoots = candidateInvites.flatMap { listOf(it.inviterNodeId, it.memberNodeId) }.toSet()
+        val sharedLineage = targetRoots.intersect(candidateRoots).isNotEmpty()
+        val candidateAliases = dao.findAliasBindingsForNode(candidateNodeId)
+        val exactScopeMatch = contextKey != null && candidateAliases.any { it.scope == contextKey }
+        val communityMatch = contextKey != null && candidateAliases.any { isSameCommunityScope(it.scope, contextKey) }
+        val scopeQuarantined = contextKey != null && candidateRevocations.any { isScopeRelevant(it.reason, contextKey) }
+        val lineageSevered = candidateRevocations.any {
+            val normalized = it.reason.lowercase()
+            normalized.contains("lineage_sever") || normalized.contains("lineage sever")
+        }
+        val aliasDistanceHint = candidateAliases
+            .filter { it.contactId == targetNodeId || it.nodeId == targetNodeId || (contextKey != null && isScopeRelevant(it.scope, contextKey)) }
+            .minOfOrNull { it.relationDistance }
+        val contextualDistance = listOfNotNull(
+            relationDistance,
+            aliasDistanceHint,
+            relationDistance - if (exactScopeMatch) 1 else 0,
+            relationDistance - if (!exactScopeMatch && communityMatch) 1 else 0
+        ).minOrNull()?.coerceAtLeast(0) ?: relationDistance
+
+        val eligible = !isRevoked &&
+            !scopeQuarantined &&
+            !lineageSevered &&
+            contextualDistance < 5 &&
+            (contextualDistance <= 2 || hasRelayRole || sharedLineage || exactScopeMatch)
+        val trustScore = when {
+            isRevoked -> -1.0
+            scopeQuarantined || lineageSevered -> -0.8
+            contextualDistance == 0 -> 2.5
+            contextualDistance == 1 -> 1.4
+            contextualDistance == 2 -> 0.9
+            contextualDistance == 3 -> 0.2
+            else -> -0.4
+        } + if (sharedLineage) 0.45 else 0.0
+            + if (hasRelayRole) 0.35 else 0.0
+            + if (exactScopeMatch) 0.55 else 0.0
+            + if (!exactScopeMatch && communityMatch) 0.2 else 0.0
+
+        return RoutingPeerProfile(
+            candidateNodeId = candidateNodeId,
+            relationDistance = relationDistance,
+            contextualDistance = contextualDistance,
+            isRevoked = isRevoked,
+            scopeQuarantined = scopeQuarantined,
+            lineageSevered = lineageSevered,
+            sharedLineage = sharedLineage,
+            hasRelayRole = hasRelayRole,
+            exactScopeMatch = exactScopeMatch,
+            communityMatch = communityMatch,
+            eligible = eligible,
+            trustScore = trustScore
+        )
+    }
+
+    private fun isScopeRelevant(candidateScope: String, contextKey: String): Boolean {
+        val normalized = candidateScope.substringAfter("scope:", candidateScope)
+        return normalized == contextKey || isSameCommunityScope(normalized, contextKey)
+    }
+
+    private fun isSameCommunityScope(left: String, right: String): Boolean =
+        scopeCommunity(left) != null && scopeCommunity(left) == scopeCommunity(right)
+
+    private fun scopeCommunity(scope: String): String? =
+        scope.split(':').let { parts ->
+            when {
+                parts.size >= 2 && parts.first() == "ctx" -> parts[1]
+                parts.isNotEmpty() -> parts.firstOrNull()
+                else -> null
+            }
+        }
 
     private fun AliasBindingEntity.toDomain(): AliasBinding =
         AliasBinding(
