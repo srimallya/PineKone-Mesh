@@ -16,9 +16,16 @@ import androidx.room.TypeConverters
         AliasBindingEntity::class,
         InviteAttestationEntity::class,
         RoleAttestationEntity::class,
-        RevocationEntity::class
+        RevocationEntity::class,
+        DecisionReceiptEntity::class,
+        CustodyReceiptEntity::class,
+        CustodyRecordEntity::class,
+        AliasEpochEntity::class,
+        RelayEventEntity::class,
+        ReplayWindowEntity::class,
+        ReplayNonceEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(PkTypeConverters::class)
@@ -28,6 +35,7 @@ abstract class PkDatabase : RoomDatabase() {
     abstract fun publicMessageDao(): PublicMessageDao
     abstract fun routingTelemetryDao(): RoutingTelemetryDao
     abstract fun governanceDao(): GovernanceDao
+    abstract fun protocolStateDao(): ProtocolStateDao
 
     companion object {
         fun build(context: Context): PkDatabase =

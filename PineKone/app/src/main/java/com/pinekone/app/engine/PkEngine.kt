@@ -15,9 +15,10 @@ import com.pinekone.app.data.model.MessageTransport
 import com.pinekone.app.data.model.MutationKind
 import com.pinekone.app.data.model.RoutingDecision
 import com.pinekone.app.identity.IdentityRepository
-import com.pinekone.app.protocol.HackFrame
+import com.pinekone.app.protocol.AckFrame
 import com.pinekone.app.protocol.PkAuth
 import com.pinekone.app.protocol.PkEnvelope
+import com.pinekone.app.protocol.CURRENT_PROTOCOL_VERSION
 import com.pinekone.app.protocol.PkFormats
 import com.pinekone.app.protocol.PkFragmentHeader
 import com.pinekone.app.protocol.PkFragmentKind
@@ -198,7 +199,7 @@ class PkEngine(
                                     transport = transport
                                 )
                                 frame.via?.let { peer ->
-                                    val ack = HackFrame(
+                                    val ack = AckFrame(
                                         msgId = frame.envelope.msgId,
                                         highestContiguousSeq = frame.envelope.frag.seq
                                     )
@@ -255,11 +256,23 @@ class PkEngine(
         val msgId = msgIdOverride?.copyOf()
             ?: ByteArray(16).apply(random::nextBytes)
         val mutationNonce = ByteArray(8).apply(random::nextBytes)
+        val createdAtMs = System.currentTimeMillis()
+        val deadlineMs = createdAtMs + (ttl.coerceAtLeast(0).toLong() * 1000L)
+        val aliasCtx = buildString {
+            append("ctx:")
+            append(hints.communityId)
+            append(':')
+            append(hints.targetHash?.toHexString() ?: "public")
+        }
+        val ctxCommitment = hints.targetHash?.copyOf(16) ?: msgId.copyOf()
         val envelope = PkEnvelope(
-            ver = 1,
+            ver = CURRENT_PROTOCOL_VERSION,
             msgId = msgId,
+            aliasCtx = aliasCtx,
             traceId = msgId.toHexString(),
-            ctxCommitment = hints.targetHash?.copyOf(),
+            deadlineMs = deadlineMs,
+            createdAtMs = createdAtMs,
+            ctxCommitment = ctxCommitment,
             condenseDepth = if (peerId != null) 1 else 0,
             mutationNonce = mutationNonce,
             hintTier = hints.priority,
@@ -411,7 +424,7 @@ class PkEngine(
 
     private fun handleControlFrame(frame: PkControlFrame, peer: PkPeer?) {
         when (frame) {
-            is HackFrame -> {
+            is AckFrame -> {
                 val msgIdHex = frame.msgId.toHexString()
                 scope.launch {
                     val contactId = peer?.id ?: pendingAcks[msgIdHex]?.contactId

@@ -8,13 +8,16 @@ import kotlinx.serialization.UseSerializers
 
 @Serializable
 data class PkEnvelope(
-    val ver: Int = 1,
+    val ver: Int = CURRENT_PROTOCOL_VERSION,
     @SerialName("msg_id") val msgId: ByteArray,
+    @SerialName("alias_ctx") val aliasCtx: String,
     @SerialName("trace_id") val traceId: String? = null,
-    @SerialName("ctx_commitment") val ctxCommitment: ByteArray? = null,
-    @SerialName("condense_depth") val condenseDepth: Int? = null,
-    @SerialName("mutation_nonce") val mutationNonce: ByteArray? = null,
-    @SerialName("hint_tier") val hintTier: Int? = null,
+    @SerialName("deadline_ms") val deadlineMs: Long,
+    @SerialName("created_at_ms") val createdAtMs: Long,
+    @SerialName("ctx_commitment") val ctxCommitment: ByteArray,
+    @SerialName("condense_depth") val condenseDepth: Int,
+    @SerialName("mutation_nonce") val mutationNonce: ByteArray,
+    @SerialName("hint_tier") val hintTier: Int,
     val ttl: Int,
     val policy: PkPolicy,
     val hints: PkHints? = null,
@@ -25,13 +28,17 @@ data class PkEnvelope(
     val payload: ByteArray
 ) {
     init {
-        require(ver == 1) { "Unsupported envelope version: $ver" }
+        require(ver == CURRENT_PROTOCOL_VERSION) { "Unsupported envelope version: $ver" }
         require(ttl in 0..255) { "TTL must be 0-255" }
         require(msgId.size == 16) { "msg_id MUST be 16 bytes" }
-        ctxCommitment?.let { require(it.size <= 32) { "ctx_commitment must be <= 32 bytes" } }
-        condenseDepth?.let { require(it in 0..255) { "condense_depth must be 0-255" } }
-        mutationNonce?.let { require(it.size in 8..32) { "mutation_nonce must be 8-32 bytes" } }
-        hintTier?.let { require(it in 0..2) { "hint_tier must be 0..2" } }
+        require(aliasCtx.isNotBlank()) { "alias_ctx must not be blank" }
+        require(deadlineMs >= 0L) { "deadline_ms must be >= 0" }
+        require(createdAtMs >= 0L) { "created_at_ms must be >= 0" }
+        require(ctxCommitment.size in 16..32) { "ctx_commitment must be 16-32 bytes" }
+        require(condenseDepth in 0..255) { "condense_depth must be 0-255" }
+        require(mutationNonce.size in 8..32) { "mutation_nonce must be 8-32 bytes" }
+        require(hintTier in 0..2) { "hint_tier must be 0..2" }
+        require(deadlineMs >= createdAtMs) { "deadline_ms must be >= created_at_ms" }
     }
 
     fun withDecrementedTtl(): PkEnvelope = copy(ttl = (ttl - 1).coerceAtLeast(0))
@@ -150,10 +157,22 @@ enum class PkFragmentKind {
 @Serializable
 data class PkAuth(
     @SerialName("policy_sig") val policySig: ByteArray? = null,
-    @SerialName("origin_pk_fp") val originPkFingerprint: ByteArray? = null
+    @SerialName("origin_pk_fp") val originPkFingerprint: ByteArray? = null,
+    @SerialName("origin_sig") val originSig: ByteArray? = null,
+    @SerialName("lineage_root_fp") val lineageRootFingerprint: ByteArray? = null,
+    @SerialName("scope_alias_id") val scopeAliasId: String? = null,
+    @SerialName("scope_epoch") val scopeEpoch: Long? = null,
+    @SerialName("signed_at_ms") val signedAtMs: Long? = null
 ) {
     init {
         policySig?.let { require(it.size == 64) { "policy_sig must be 64 bytes" } }
         originPkFingerprint?.let { require(it.size == 8) { "origin_pk_fp must be 8 bytes" } }
+        originSig?.let { require(it.size == 64) { "origin_sig must be 64 bytes" } }
+        lineageRootFingerprint?.let { require(it.size == 8) { "lineage_root_fp must be 8 bytes" } }
+        scopeAliasId?.let { require(it.isNotBlank()) { "scope_alias_id must not be blank" } }
+        scopeEpoch?.let { require(it >= 0L) { "scope_epoch must be >= 0" } }
+        signedAtMs?.let { require(it >= 0L) { "signed_at_ms must be >= 0" } }
     }
 }
+
+const val CURRENT_PROTOCOL_VERSION: Int = 2

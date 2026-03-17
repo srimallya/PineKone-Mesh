@@ -25,6 +25,14 @@ class PkEnvelopeTest {
     private fun assertEnvelopeEquals(expected: PkEnvelope, actual: PkEnvelope) {
         assertEquals(expected.ver, actual.ver)
         assertTrue(expected.msgId.contentEquals(actual.msgId))
+        assertEquals(expected.aliasCtx, actual.aliasCtx)
+        assertEquals(expected.traceId, actual.traceId)
+        assertEquals(expected.deadlineMs, actual.deadlineMs)
+        assertEquals(expected.createdAtMs, actual.createdAtMs)
+        assertTrue(expected.ctxCommitment.contentEquals(actual.ctxCommitment))
+        assertEquals(expected.condenseDepth, actual.condenseDepth)
+        assertTrue(expected.mutationNonce.contentEquals(actual.mutationNonce))
+        assertEquals(expected.hintTier, actual.hintTier)
         assertEquals(expected.ttl, actual.ttl)
         assertEquals(expected.policy, actual.policy)
         assertEquals(expected.hints, actual.hints)
@@ -45,8 +53,16 @@ class PkEnvelopeTest {
         val msgId = ByteArray(16) { it.toByte() }
         val payload = ByteArray(32) { (255 - it).toByte() }
         return PkEnvelope(
-            ver = 1,
+            ver = CURRENT_PROTOCOL_VERSION,
             msgId = msgId,
+            aliasCtx = "ctx:12345:0011223344556677",
+            traceId = msgId.toHexString(),
+            deadlineMs = 2_000L,
+            createdAtMs = 1_000L,
+            ctxCommitment = ByteArray(16) { (it + 1).toByte() },
+            condenseDepth = 1,
+            mutationNonce = ByteArray(8) { (it + 10).toByte() },
+            hintTier = 1,
             ttl = 10,
             policy = PkPolicy(
                 maxFanout = 2,

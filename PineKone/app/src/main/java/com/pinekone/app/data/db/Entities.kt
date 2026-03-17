@@ -254,3 +254,257 @@ data class RevocationEntity(
     @ColumnInfo(name = "created_at")
     val createdAtEpochMillis: Long
 )
+
+@Entity(
+    tableName = "decision_receipts",
+    indices = [
+        Index(value = ["msg_id"]),
+        Index(value = ["receipt_id"], unique = true),
+        Index(value = ["created_at"]),
+        Index(value = ["lineage_root"])
+    ]
+)
+data class DecisionReceiptEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "receipt_id")
+    val receiptId: String,
+    @ColumnInfo(name = "msg_id")
+    val msgId: String,
+    @ColumnInfo(name = "contact_id")
+    val contactId: String?,
+    @ColumnInfo(name = "decision")
+    val decision: String,
+    @ColumnInfo(name = "reason_code")
+    val reasonCode: String,
+    @ColumnInfo(name = "transport")
+    val transport: String?,
+    @ColumnInfo(name = "peer_id")
+    val peerId: String?,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String?,
+    @ColumnInfo(name = "alias_id")
+    val aliasId: String?,
+    @ColumnInfo(name = "lineage_root")
+    val lineageRoot: String?,
+    @ColumnInfo(name = "canonical_payload")
+    val canonicalPayload: String,
+    @ColumnInfo(name = "signature")
+    val signature: String,
+    @ColumnInfo(name = "created_at")
+    val createdAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "custody_receipts",
+    indices = [
+        Index(value = ["msg_id"]),
+        Index(value = ["receipt_id"], unique = true),
+        Index(value = ["custody_node_id"]),
+        Index(value = ["expiry_at"])
+    ]
+)
+data class CustodyReceiptEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "receipt_id")
+    val receiptId: String,
+    @ColumnInfo(name = "msg_id")
+    val msgId: String,
+    @ColumnInfo(name = "custody_node_id")
+    val custodyNodeId: String,
+    @ColumnInfo(name = "accepted_at")
+    val acceptedAtEpochMillis: Long,
+    @ColumnInfo(name = "expiry_at")
+    val expiryAtEpochMillis: Long,
+    @ColumnInfo(name = "fetch_token")
+    val fetchToken: String?,
+    @ColumnInfo(name = "proof")
+    val proof: String?,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String?,
+    @ColumnInfo(name = "alias_id")
+    val aliasId: String?,
+    @ColumnInfo(name = "lineage_root")
+    val lineageRoot: String?,
+    @ColumnInfo(name = "signature")
+    val signature: String,
+    @ColumnInfo(name = "status")
+    val status: String,
+    @ColumnInfo(name = "created_at")
+    val createdAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "custody_records",
+    indices = [
+        Index(value = ["msg_id"]),
+        Index(value = ["holder_node_id"]),
+        Index(value = ["state"]),
+        Index(value = ["expiry_at"])
+    ]
+)
+data class CustodyRecordEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "msg_id")
+    val msgId: String,
+    @ColumnInfo(name = "holder_node_id")
+    val holderNodeId: String,
+    @ColumnInfo(name = "receipt_id")
+    val receiptId: String?,
+    @ColumnInfo(name = "state")
+    val state: String,
+    @ColumnInfo(name = "accepted_at")
+    val acceptedAtEpochMillis: Long?,
+    @ColumnInfo(name = "transferred_from")
+    val transferredFromNodeId: String?,
+    @ColumnInfo(name = "released_at")
+    val releasedAtEpochMillis: Long?,
+    @ColumnInfo(name = "expiry_at")
+    val expiryAtEpochMillis: Long?,
+    @ColumnInfo(name = "reason")
+    val reason: String?,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String?,
+    @ColumnInfo(name = "alias_id")
+    val aliasId: String?,
+    @ColumnInfo(name = "lineage_root")
+    val lineageRoot: String?,
+    @ColumnInfo(name = "updated_at")
+    val updatedAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "alias_epochs",
+    indices = [
+        Index(value = ["node_id"]),
+        Index(value = ["alias_ctx"]),
+        Index(value = ["alias_id"], unique = true),
+        Index(value = ["lineage_root"]),
+        Index(value = ["status"])
+    ]
+)
+data class AliasEpochEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "node_id")
+    val nodeId: String,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String,
+    @ColumnInfo(name = "alias_id")
+    val aliasId: String,
+    @ColumnInfo(name = "lineage_root")
+    val lineageRoot: String,
+    @ColumnInfo(name = "scope")
+    val scope: String,
+    @ColumnInfo(name = "epoch")
+    val epoch: Long,
+    @ColumnInfo(name = "active_from")
+    val activeFromEpochMillis: Long,
+    @ColumnInfo(name = "grace_until")
+    val graceUntilEpochMillis: Long?,
+    @ColumnInfo(name = "retired_at")
+    val retiredAtEpochMillis: Long?,
+    @ColumnInfo(name = "status")
+    val status: String,
+    @ColumnInfo(name = "rotation_reason")
+    val rotationReason: String?,
+    @ColumnInfo(name = "signature")
+    val signature: String?,
+    @ColumnInfo(name = "created_at")
+    val createdAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "relay_events",
+    indices = [
+        Index(value = ["msg_id"]),
+        Index(value = ["event_id"], unique = true),
+        Index(value = ["from_peer_id"]),
+        Index(value = ["to_peer_id"]),
+        Index(value = ["created_at"])
+    ]
+)
+data class RelayEventEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "msg_id")
+    val msgId: String,
+    @ColumnInfo(name = "hop_index")
+    val hopIndex: Int,
+    @ColumnInfo(name = "from_peer_id")
+    val fromPeerId: String?,
+    @ColumnInfo(name = "to_peer_id")
+    val toPeerId: String?,
+    @ColumnInfo(name = "transport")
+    val transport: String,
+    @ColumnInfo(name = "decision")
+    val decision: String,
+    @ColumnInfo(name = "reason_code")
+    val reasonCode: String,
+    @ColumnInfo(name = "mutation_kind")
+    val mutationKind: String?,
+    @ColumnInfo(name = "mutation_nonce")
+    val mutationNonce: String?,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String?,
+    @ColumnInfo(name = "alias_id")
+    val aliasId: String?,
+    @ColumnInfo(name = "detail")
+    val detail: String?,
+    @ColumnInfo(name = "created_at")
+    val createdAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "replay_windows",
+    indices = [
+        Index(value = ["subject_key"], unique = true),
+        Index(value = ["scope"]),
+        Index(value = ["updated_at"])
+    ]
+)
+data class ReplayWindowEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "subject_key")
+    val subjectKey: String,
+    @ColumnInfo(name = "scope")
+    val scope: String,
+    @ColumnInfo(name = "window_start")
+    val windowStartEpochMillis: Long,
+    @ColumnInfo(name = "window_end")
+    val windowEndEpochMillis: Long,
+    @ColumnInfo(name = "last_nonce")
+    val lastNonce: String?,
+    @ColumnInfo(name = "nonce_floor")
+    val nonceFloor: Long?,
+    @ColumnInfo(name = "nonce_ceiling")
+    val nonceCeiling: Long?,
+    @ColumnInfo(name = "updated_at")
+    val updatedAtEpochMillis: Long
+)
+
+@Entity(
+    tableName = "replay_nonces",
+    indices = [
+        Index(value = ["subject_key"]),
+        Index(value = ["nonce"], unique = true),
+        Index(value = ["expires_at"])
+    ]
+)
+data class ReplayNonceEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "subject_key")
+    val subjectKey: String,
+    @ColumnInfo(name = "nonce")
+    val nonce: String,
+    @ColumnInfo(name = "msg_id")
+    val msgId: String?,
+    @ColumnInfo(name = "alias_ctx")
+    val aliasCtx: String?,
+    @ColumnInfo(name = "seen_at")
+    val seenAtEpochMillis: Long,
+    @ColumnInfo(name = "expires_at")
+    val expiresAtEpochMillis: Long
+)

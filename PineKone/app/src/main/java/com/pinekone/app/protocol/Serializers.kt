@@ -3,23 +3,34 @@
 package com.pinekone.app.protocol
 
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ByteArraySerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
 
 /**
- * Serializes ByteArrays as lowercase hex strings so the JSON debugging format stays human friendly.
+ * Serializes ByteArrays as lowercase hex strings for JSON diagnostics and raw bytes for binary codecs.
  */
 object HexByteArraySerializer : KSerializer<ByteArray> {
     override val descriptor = PrimitiveSerialDescriptor("HexByteArray", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: ByteArray) {
-        encoder.encodeString(value.toHexString())
+        if (encoder is JsonEncoder) {
+            encoder.encodeString(value.toHexString())
+        } else {
+            encoder.encodeSerializableValue(ByteArraySerializer(), value)
+        }
     }
 
     override fun deserialize(decoder: Decoder): ByteArray {
-        return decoder.decodeString().hexToByteArray()
+        return if (decoder is JsonDecoder) {
+            decoder.decodeString().hexToByteArray()
+        } else {
+            decoder.decodeSerializableValue(ByteArraySerializer())
+        }
     }
 }
 
