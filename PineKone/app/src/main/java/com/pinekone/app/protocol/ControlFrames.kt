@@ -13,8 +13,24 @@ sealed interface PkControlFrame {
 }
 
 @Serializable
-@SerialName("ack")
+@SerialName("hack")
 data class AckFrame(
+    @SerialName("msg_id") override val msgId: ByteArray,
+    @SerialName("highest_contig_seq") val highestContiguousSeq: Int,
+    @SerialName("acked_seqs") val ackedSeqs: List<Int> = emptyList(),
+    @SerialName("issued_at_ms") override val issuedAtMs: Long? = null
+) : PkControlFrame {
+    init {
+        requireControlMsgId(msgId)
+        require(highestContiguousSeq in 0..0xFFFFFF) { "seq must fit u24" }
+        ackedSeqs.forEach { require(it in 0..0xFFFFFF) { "acked seq $it must fit u24" } }
+        issuedAtMs?.let(::requireNonNegativeTimestamp)
+    }
+}
+
+@Serializable
+@SerialName("ack")
+data class CompatAckFrame(
     @SerialName("msg_id") override val msgId: ByteArray,
     @SerialName("highest_contig_seq") val highestContiguousSeq: Int,
     @SerialName("acked_seqs") val ackedSeqs: List<Int> = emptyList(),

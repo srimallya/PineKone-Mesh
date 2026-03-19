@@ -10,14 +10,14 @@ import kotlinx.serialization.UseSerializers
 data class PkEnvelope(
     val ver: Int = CURRENT_PROTOCOL_VERSION,
     @SerialName("msg_id") val msgId: ByteArray,
-    @SerialName("alias_ctx") val aliasCtx: String,
+    @SerialName("alias_ctx") val aliasCtx: String = LEGACY_ALIAS_CONTEXT,
     @SerialName("trace_id") val traceId: String? = null,
-    @SerialName("deadline_ms") val deadlineMs: Long,
-    @SerialName("created_at_ms") val createdAtMs: Long,
-    @SerialName("ctx_commitment") val ctxCommitment: ByteArray,
-    @SerialName("condense_depth") val condenseDepth: Int,
-    @SerialName("mutation_nonce") val mutationNonce: ByteArray,
-    @SerialName("hint_tier") val hintTier: Int,
+    @SerialName("deadline_ms") val deadlineMs: Long = 0L,
+    @SerialName("created_at_ms") val createdAtMs: Long = 0L,
+    @SerialName("ctx_commitment") val ctxCommitment: ByteArray = ByteArray(16),
+    @SerialName("condense_depth") val condenseDepth: Int = 0,
+    @SerialName("mutation_nonce") val mutationNonce: ByteArray = ByteArray(8),
+    @SerialName("hint_tier") val hintTier: Int = 1,
     val ttl: Int,
     val policy: PkPolicy,
     val hints: PkHints? = null,
@@ -28,13 +28,21 @@ data class PkEnvelope(
     val payload: ByteArray
 ) {
     init {
-        require(ver == CURRENT_PROTOCOL_VERSION) { "Unsupported envelope version: $ver" }
+        require(ver == LEGACY_PROTOCOL_VERSION || ver == CURRENT_PROTOCOL_VERSION) {
+            "Unsupported envelope version: $ver"
+        }
         require(ttl in 0..255) { "TTL must be 0-255" }
         require(msgId.size == 16) { "msg_id MUST be 16 bytes" }
         require(aliasCtx.isNotBlank()) { "alias_ctx must not be blank" }
         require(deadlineMs >= 0L) { "deadline_ms must be >= 0" }
         require(createdAtMs >= 0L) { "created_at_ms must be >= 0" }
-        require(ctxCommitment.size in 16..32) { "ctx_commitment must be 16-32 bytes" }
+        require(
+            if (ver == CURRENT_PROTOCOL_VERSION) {
+                ctxCommitment.size in 16..32
+            } else {
+                ctxCommitment.size <= 32
+            }
+        ) { "ctx_commitment must be compatible with envelope version $ver" }
         require(condenseDepth in 0..255) { "condense_depth must be 0-255" }
         require(mutationNonce.size in 8..32) { "mutation_nonce must be 8-32 bytes" }
         require(hintTier in 0..2) { "hint_tier must be 0..2" }
@@ -176,3 +184,5 @@ data class PkAuth(
 }
 
 const val CURRENT_PROTOCOL_VERSION: Int = 2
+const val LEGACY_PROTOCOL_VERSION: Int = 1
+private const val LEGACY_ALIAS_CONTEXT = "ctx:0:public"

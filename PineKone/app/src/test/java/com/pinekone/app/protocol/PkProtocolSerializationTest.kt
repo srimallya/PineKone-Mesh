@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class PkProtocolSerializationTest {
 
@@ -54,5 +55,53 @@ class PkProtocolSerializationTest {
         assertEquals(4, ack.highestContiguousSeq)
         assertEquals(listOf(1, 2, 3), ack.ackedSeqs)
         assertEquals(99L, ack.issuedAtMs)
+        assertTrue(frame.toJson().contains("\"type\":\"hack\""))
+    }
+
+    @Test
+    fun controlFrameJsonRoundTripAcceptsModernAckTag() {
+        val json = """
+            {
+              "type":"ack",
+              "msg_id":"000102030405060708090a0b0c0d0e0f",
+              "highest_contig_seq":4,
+              "acked_seqs":[1,2,3],
+              "issued_at_ms":99
+            }
+        """.trimIndent()
+
+        val decoded = json.toControlFrameFromJson()
+
+        val ack = assertIs<CompatAckFrame>(decoded)
+        assertEquals(4, ack.highestContiguousSeq)
+        assertEquals(listOf(1, 2, 3), ack.ackedSeqs)
+        assertEquals(99L, ack.issuedAtMs)
+    }
+
+    @Test
+    fun envelopeJsonRoundTripAcceptsLegacySchema() {
+        val json = """
+            {
+              "msg_id":"000102030405060708090a0b0c0d0e0f",
+              "trace_id":"legacy-trace",
+              "ttl":8,
+              "policy":{"max_fanout":2,"retry_limit":1,"min_batt_pct":10},
+              "hints":{"community_id":12359,"target_hash":"0102030405060708","priority":1},
+              "ops":{"store_carry":true,"require_ack":true,"e2e_ack_path":true},
+              "frag":{"kind":"DATA","seq":0,"total":1},
+              "auth":{"origin_pk_fp":"0102030405060708"},
+              "payload":"2a2b2c",
+              "ver":1
+            }
+        """.trimIndent()
+
+        val decoded = json.toEnvelopeFromJson()
+
+        assertEquals(LEGACY_PROTOCOL_VERSION, decoded.ver)
+        assertEquals("ctx:0:public", decoded.aliasCtx)
+        assertEquals(0L, decoded.deadlineMs)
+        assertEquals(0L, decoded.createdAtMs)
+        assertContentEquals(ByteArray(16), decoded.ctxCommitment)
+        assertContentEquals(byteArrayOf(42, 43, 44), decoded.payload)
     }
 }

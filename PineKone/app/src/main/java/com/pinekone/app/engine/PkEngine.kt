@@ -18,9 +18,10 @@ import com.pinekone.app.data.model.MutationKind
 import com.pinekone.app.data.model.RoutingDecision
 import com.pinekone.app.identity.IdentityRepository
 import com.pinekone.app.protocol.AckFrame
+import com.pinekone.app.protocol.CompatAckFrame
+import com.pinekone.app.protocol.LEGACY_PROTOCOL_VERSION
 import com.pinekone.app.protocol.PkAuth
 import com.pinekone.app.protocol.PkEnvelope
-import com.pinekone.app.protocol.CURRENT_PROTOCOL_VERSION
 import com.pinekone.app.protocol.PkFormats
 import com.pinekone.app.protocol.PkFragmentHeader
 import com.pinekone.app.protocol.PkFragmentKind
@@ -269,7 +270,8 @@ class PkEngine(
         }
         val ctxCommitment = hints.targetHash?.copyOf(16) ?: msgId.copyOf()
         val envelope = PkEnvelope(
-            ver = CURRENT_PROTOCOL_VERSION,
+            // Keep the mesh wire format readable by pre-upgrade peers until we negotiate versions.
+            ver = LEGACY_PROTOCOL_VERSION,
             msgId = msgId,
             aliasCtx = aliasCtx,
             traceId = msgId.toHexString(),
@@ -455,50 +457,10 @@ class PkEngine(
     private fun handleControlFrame(frame: PkControlFrame, peer: PkPeer?) {
         when (frame) {
             is AckFrame -> {
-                val msgIdHex = frame.msgId.toHexString()
-                scope.launch {
-                    val pending = pendingAcks[msgIdHex]
-                    val contactId = pending?.contactId ?: peer?.id
-                    contactId?.let {
-                        messageRepository.markStatus(it, msgIdHex, MessageStatus.DELIVERED)
-                        recordDecision(
-                            msgIdHex = msgIdHex,
-                            contactId = it,
-                            decision = RoutingDecision.DELIVERY_CONFIRMED,
-                            reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED,
-                            transport = MessageTransport.MESH.name,
-                            peerId = peer?.id,
-                            detail = "ack highest_seq=${frame.highestContiguousSeq}"
-                        )
-                    }
-                    pending?.let {
-                        routingTelemetryRepository.recordRouteOutcome(
-                            peerId = it.peerId,
-                            contextKey = it.envelope.aliasCtx,
-                            success = true,
-                            latencyMs = System.currentTimeMillis() - it.startedAtMs,
-                            transport = MessageTransport.MESH.name,
-                            reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
-                        )
-                    }
-                    messageStore.updateStatus(frame.msgId, EnvelopeStatus.DELIVERED)
-                    recordMutation(
-                        msgIdHex = msgIdHex,
-                        kind = MutationKind.DELIVERY_PATH_CONFIRMED,
-                        peerId = peer?.id,
-                        detail = "delivery ack received"
-                    )
-                    pending?.let {
-                        routingTelemetryRepository.recordRouteMutationImpact(
-                            peerId = it.peerId,
-                            contextKey = it.envelope.aliasCtx,
-                            mutationKind = MutationKind.DELIVERY_PATH_CONFIRMED,
-                            transport = MessageTransport.MESH.name,
-                            reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
-                        )
-                    }
-                    clearPendingAck(msgIdHex)
-                }
+                handleAckFrame(frame.msgId, frame.highestContiguousSeq, peer)
+            }
+            is CompatAckFrame -> {
+                handleAckFrame(frame.msgId, frame.highestContiguousSeq, peer)
             }
             is PingFrame -> {
                 val targetPeerId = peer?.id ?: return
@@ -1048,6 +1010,53 @@ class PkEngine(
 
     private fun clearPendingAck(msgIdHex: String) {
         pendingAcks.remove(msgIdHex)?.job?.cancel()
+    }
+
+    private fun handleAckFrame(msgId: ByteArray, highestContiguousSeq: Int, peer: PkPeer?) {
+        val msgIdHex = msgId.toHexString()
+        scope.launch {
+            val pending = pendingAcks[msgIdHex]
+            val contactId = pending?.contactId ?: peer?.id
+            contactId?.let {
+                messageRepository.markStatus(it, msgIdHex, MessageStatus.DELIVERED)
+                recordDecision(
+                    msgIdHex = msgIdHex,
+                    contactId = it,
+                    decision = RoutingDecision.DELIVERY_CONFIRMED,
+                    reason = DecisionReasonCode.DELIVERY_ACK_RECEIVED,
+                    transport = MessageTransport.MESH.name,
+                    peerId = peer?.id,
+                    detail = "ack highest_seq=$highestContiguousSeq"
+                )
+            }
+            pending?.let {
+                routingTelemetryRepository.recordRouteOutcome(
+                    peerId = it.peerId,
+                    contextKey = it.envelope.aliasCtx,
+                    success = true,
+                    latencyMs = System.currentTimeMillis() - it.startedAtMs,
+                    transport = MessageTransport.MESH.name,
+                    reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
+                )
+            }
+            messageStore.updateStatus(msgId, EnvelopeStatus.DELIVERED)
+            recordMutation(
+                msgIdHex = msgIdHex,
+                kind = MutationKind.DELIVERY_PATH_CONFIRMED,
+                peerId = peer?.id,
+                detail = "delivery ack received"
+            )
+            pending?.let {
+                routingTelemetryRepository.recordRouteMutationImpact(
+                    peerId = it.peerId,
+                    contextKey = it.envelope.aliasCtx,
+                    mutationKind = MutationKind.DELIVERY_PATH_CONFIRMED,
+                    transport = MessageTransport.MESH.name,
+                    reasonCode = DecisionReasonCode.DELIVERY_ACK_RECEIVED
+                )
+            }
+            clearPendingAck(msgIdHex)
+        }
     }
 
     private fun reasonFor(
