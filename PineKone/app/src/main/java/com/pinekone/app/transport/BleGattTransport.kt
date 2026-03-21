@@ -293,8 +293,7 @@ class BleGattTransport(
     override suspend fun send(peer: RadioPeer, frame: ByteArray): Boolean {
         ensureReady()
         val context = peerMutex.withLock { peerContexts[peer.id] }
-        val dataChar = outgoingDataCharacteristic
-        if (context == null || dataChar == null) {
+        if (context == null) {
             Log.w(BLE_TAG, "No BLE context for peer ${peer.id}")
             return false
         }
@@ -311,6 +310,7 @@ class BleGattTransport(
                 sendClientChunks(context, gatt, characteristic, frame)
             }
             serverDevice != null -> {
+                val dataChar = outgoingDataCharacteristic ?: return false
                 if (!hasConnectPermission()) {
                     Log.w(BLE_TAG, "Missing BLUETOOTH_CONNECT permission; cannot notify ${peer.id}")
                     return false
@@ -509,18 +509,6 @@ class BleGattTransport(
                     pendingWrite.complete(status == BluetoothGatt.GATT_SUCCESS)
                     return
                 }
-                if (characteristic.uuid == CTRL_CHAR_UUID) {
-                    val data = gatt.getService(SERVICE_UUID)?.getCharacteristic(DATA_CHAR_UUID)
-                    if (status == BluetoothGatt.GATT_SUCCESS && data != null) {
-                        peerContext.setupState = BleSetupState.ENABLING_DATA
-                        if (!enableNotifications(gatt, data, device.address)) {
-                            Log.w(BLE_TAG, "Failed to enable data notifications for ${device.address}")
-                        }
-                    } else {
-                        Log.w(BLE_TAG, "Characteristic write failed for ${device.address}: $status")
-                    }
-                    return
-                }
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     Log.w(BLE_TAG, "Characteristic write failed for ${device.address}: $status")
                 }
@@ -547,8 +535,8 @@ class BleGattTransport(
             val context = deviceContexts.getOrPut(address) { BlePeerContext(deviceAddress = address) }
             when (packet) {
                 is MeshPacket.Handshake -> handleHandshake(context, packet)
-                is MeshPacket.EnvelopePacket -> emitFrame(context, packet.toBytes(bytes))
-                is MeshPacket.ControlPacket -> emitFrame(context, packet.toBytes(bytes))
+                is MeshPacket.EnvelopePacket -> emitFrame(context, packetBytes, TransportFrame.FrameType.PAYLOAD)
+                is MeshPacket.ControlPacket -> emitFrame(context, packetBytes, TransportFrame.FrameType.CONTROL)
             }
         }
     }
@@ -604,18 +592,19 @@ class BleGattTransport(
         }
     }
 
-    private suspend fun emitFrame(context: BlePeerContext, bytes: ByteArray) {
+    private suspend fun emitFrame(
+        context: BlePeerContext,
+        bytes: ByteArray,
+        type: TransportFrame.FrameType
+    ) {
         val peer = context.radioPeer ?: return
         peerFlows[peer.id]?.emit(
             TransportFrame(
                 bytes = bytes,
-                type = TransportFrame.FrameType.PAYLOAD
+                type = type
             )
         )
     }
-
-    private fun MeshPacket.EnvelopePacket.toBytes(original: ByteArray): ByteArray = original
-    private fun MeshPacket.ControlPacket.toBytes(original: ByteArray): ByteArray = original
 
     private fun handleDeviceDisconnected(address: String) {
         scope.launch {
@@ -682,6 +671,13 @@ class BleGattTransport(
         val sent = sendClientChunks(context, gatt, ctrl, localHandshakeBytes)
         if (sent) {
             context.handshakeSent = true
+            val data = gatt.getService(SERVICE_UUID)?.getCharacteristic(DATA_CHAR_UUID)
+            if (data != null) {
+                context.setupState = BleSetupState.ENABLING_DATA
+                if (!enableNotifications(gatt, data, context.deviceAddress)) {
+                    Log.w(BLE_TAG, "Failed to enable data notifications for ${context.deviceAddress}")
+                }
+            }
         }
     }
 
